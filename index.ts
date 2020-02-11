@@ -1,3 +1,5 @@
+import {inspect} from "util";
+
 function rule(s: TemplateStringsArray, ...args) {}
 
 // const between = rule``;
@@ -15,7 +17,7 @@ interface BoundAddress<T> {
 }
 
 class Address<T> {
-    value: T;
+    value: T = null;
     get() {
         return this.value;
     }
@@ -33,7 +35,7 @@ class Address<T> {
 
 // }
 
-function addr<T>(): UnboundAddress<T> {
+function addr<T = any>(): UnboundAddress<T> {
     return new Address<T>();
 }
 
@@ -59,6 +61,23 @@ function unbound<T>(p: Ptr<T>): p is UnboundAddress<T> {
 
 function bound<T>(p: Ptr<T>): p is BoundAddress<T> {
     return p instanceof Address && p.value !== null;
+}
+
+function read<T>(p: UnboundAddress<T>): never;
+function read<T>(p: T | BoundAddress<T>): T
+function read<T>(p: Ptr<T>): T
+function read<T>(p: Ptr<T>): T {
+    if (bound(p)) return p.value;
+    if (value(p)) return p;
+    throw new Error('Cannot read non-value or unbound address');
+}
+
+function write<T>(p: T | BoundAddress<T>, v: T): never;
+function write<T>(p: UnboundAddress<T>, v: T): BoundAddress<T>;
+function write<T>(p: Ptr<T>, v: T): BoundAddress<T>;
+function write<T>(p: Ptr<T>, v: T): BoundAddress<T> {
+    if (unbound(p)) return p.set(v);
+    throw new Error('Cannot write value or bound address');
 }
 
 function* is(lhs: Ptr, rhs: Ptr) {
@@ -123,7 +142,13 @@ class Link<T> {
     }
 
     pop() {
-        this.parent.child = new Link(this.sibling.value, this.parent, this.sibling.sibling, this.sibling.child);
+        if (this.sibling) {
+            this.parent.child = new Link(this.sibling.value, this.parent, this.sibling.sibling, this.sibling.child);
+        } else if (this.child) {
+            throw new Error('Popping Link that has a child');
+        } else {
+            this.parent.child = null;
+        }
         return this.parent;
     }
 
@@ -293,7 +318,7 @@ function step(state: RunState): Promise<RunState> | RunState {
     if (state.unwindLink) {
         if (state.link === state.unwindLink) {
             state.unwindLink = null;
-            if (state.link.value === null) return state;
+            return state;
         }
 
         const out = state.link.value.next(false);
@@ -302,7 +327,7 @@ function step(state: RunState): Promise<RunState> | RunState {
             if (state.link.child) state.link = state.link.down();
             else state.link = state.link.pop();
         } else {
-            throw new Error('yielding or returning false or null are accepted when unwinding');
+            throw new Error(`yielding or returning false or null are accepted when unwinding: ${out.value}`);
         }
         return state;
     }
@@ -367,17 +392,46 @@ function run(p: Predicate): boolean | Promise<boolean> {
 // }
 
 if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
-    class Reporter {
-        testName: string;
-        testResult: {ok: boolean, message: string}[];
+    interface Reporter {
+        startSuite(): void;
+        finishSuite(): void;
+        startTest(name: string): void;
+        finishTest(): void;
+        assert(ok: boolean, message: string): void;
+    }
+    class NullReporter implements Reporter {
         startSuite() {}
         finishSuite() {}
+        startTest(name: string) {}
+        finishTest() {}
+        assert(ok: boolean, message: string) {}
+    }
+    class LogReporter implements Reporter {
+        tests: number;
+        testsPassed: number;
+        testName: string;
+        testResult: {ok: boolean, message: string}[];
+        testStart: number;
+        startSuite() {
+            this.tests = 0;
+            this.testsPassed = 0;
+        }
+        finishSuite() {
+            console.log(`${this.tests === this.testsPassed ? 'OK' : 'FAIL'}: ${this.tests} ran. ${this.testsPassed} passed. ${this.tests - this.testsPassed} failed.`);
+            process.exitCode = 1;
+        }
         startTest(name: string) {
+            this.tests++;
             this.testName = name;
             this.testResult = [];
+            this.testStart = Date.now();
         }
         finishTest() {
-            console.log(`${this.testName} - ${this.testResult.filter(({ok}) => ok).length} ${this.testResult.filter(({ok}) => !ok).length}`);
+            const duration = Date.now() - this.testStart;
+            this.testsPassed += this.testResult.every(({ok}) => ok) ? 1 : 0;
+            // console.log(`${this.testName} - ${this.testResult.filter(({ok}) => ok).length} ${this.testResult.filter(({ok}) => !ok).length}`);
+            console.log(this.testName, `- ${duration}ms`);
+            this.testResult.map(({ok, message}) => console.log(ok ? '✓' : '⨯', message));
         }
         assert(ok: boolean, message: string) {
             this.testResult.push({ok, message});
@@ -388,8 +442,40 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
         constructor(reporter: Reporter) {
             this.reporter = reporter;
         }
+        pass(message: string) {
+            this.reporter.assert(true, message);
+        }
+        fail(message: string) {
+            this.reporter.assert(false, message);
+        }
         ok(truthy: any, message = '') {
             this.reporter.assert(Boolean(truthy), message);
+        }
+        true(t: boolean, message = '') {
+            if (t === true) this.reporter.assert(true, message);
+            else this.reporter.assert(false, `Expected ${inspect(t)} to be true. ${message}`);
+        }
+        false(f: boolean, message = '') {
+            if (f === false) this.reporter.assert(true, message);
+            else this.reporter.assert(false, `Expected ${inspect(f)} to be false. ${message}`);
+        }
+        throws(E: new () => Error, f: () => Promise<never>, message?: string): Promise<void>;
+        throws(E: new () => Error, f: () => never, message?: string): void;
+        throws(E: new () => Error, f: () => never | Promise<never>, message?: string): void | Promise<void>;
+        throws(E: new () => Error, f: () => never | Promise<never>, message = ''): void | Promise<void> {
+            try {
+                const r = f();
+                if (r instanceof Promise) {
+                    return r.then(() => this.fail(`Expected ${E} to be thrown. ${message}`), e => {
+                        if (e instanceof E) this.pass(`Throws ${E}. ${message}`);
+                        else this.fail(`Expected ${E} but threw ${e}. ${message}`);
+                    });
+                }
+                this.fail(`Expected ${E} to be thrown. ${message}`);
+            } catch (e) {
+                if (e instanceof E) this.pass(`Throws ${E}. ${message}`);
+                else this.fail(`Expected ${E} but threw ${e}. ${message}`);
+            }
         }
     }
 
@@ -414,7 +500,7 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
         reporter: Reporter;
         assert: Assert;
 
-        constructor(suite: Suite, reporter: Reporter = new Reporter(), assert = new Assert(reporter)) {
+        constructor(suite: Suite, reporter: Reporter = new LogReporter(), assert = new Assert(reporter)) {
             this.suite = suite;
             this.reporter = reporter;
             this.assert = assert;
@@ -432,9 +518,9 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
                     ]);
                 } catch (e) {
                     if (e instanceof TimeoutError) {
-                        this.assert.ok(false, 'Timeout');
+                        this.assert.fail('Timeout');
                     } else {
-                        this.assert.ok(false, 'Unexpected exception thrown');
+                        this.assert.fail(`Unexpected exception thrown: ${e.stack || e.message || e}`);
                     }
                 }
                 this.reporter.finishTest();
@@ -446,40 +532,157 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
     const s = new Suite();
 
     try {
-        s.test('', t => {
+        // Link
+        s.test('Link.init', t => {
+            const l = Link.init(1);
+            t.ok(l.value === 1);
+            t.ok(l.parent instanceof Link);
+            t.ok(l.parent.value === null);
+            t.ok(l.sibling === null);
+            t.ok(l.child === null);
+        });
+        s.test('Link.push', t => {
+            let l = Link.init(1);
+            l = l.push(2);
+            t.ok(l.parent.value === 1);
+            l = l.up();
+            t.ok(l.value === 1);
+            l = l.push(3);
+            t.ok(l.parent.value === 1);
+            t.ok(l.sibling.value === 2);
+        });
+        s.test('Link.pop', t => {
+            let l = Link.init(1);
+            l = l.push(2);
+            l = l.pop();
+            t.ok(l.value === 1);
+            t.ok(l.child === null);
+            l = l.push(3);
+            l = l.push(4);
+            l = l.up();
+            t.throws(Error, () => l.pop());
+        });
+
+        // run()
+        s.test('run - depth 1, yield true', t => {
             const root = function* () {
                 yield true;
             };
-            t.ok(run(root()));
+            t.true(run(root()));
         });
-        s.test('', t => {
+        s.test('run - depth 1, yield false', t => {
             const root = function* () {
                 yield false;
             };
-            t.ok(!run(root()));
+            t.false(run(root()));
         });
-        s.test('', async t => {
+        s.test('run - depth 1, yield resolve true', async t => {
             function* root() {
                 yield Promise.resolve(true);
             }
-            t.ok(await run(root()));
+            t.true(await run(root()));
         });
-        s.test('', t => {
+        s.test('run - depth 1, yield resolve false', async t => {
+            function* root() {
+                yield Promise.resolve(false);
+            }
+            t.false(await run(root()));
+        });
+        s.test('run - depth 1, return true', t => {
             const root = function* () {
                 return true;
             };
-            t.ok(run(root()));
+            t.true(run(root()));
         });
-        s.test('', t => {
+        s.test('run - depth 1, return false', t => {
             const root = function* () {
-                console.log('b');
+                return false;
+            };
+            t.false(run(root()));
+        });
+        s.test('run - depth 1, return resolve true', async t => {
+            const root = function* () {
+                return Promise.resolve(true);
+            };
+            t.true(await run(root()));
+        });
+        s.test('run - depth 1, return resolve false', async t => {
+            const root = function* () {
+                return Promise.resolve(false);
+            };
+            t.false(await run(root()));
+        });
+        s.test('run - depth 1, return generator yield true', t => {
+            const root = function* () {
                 return root2();
             };
             const root2 = function* () {
-                console.log('a');
                 yield true;
             };
-            t.ok(run(root()));
+            t.true(run(root()));
+        });
+        s.test('run - depth 1, return generator yield false', t => {
+            const root = function* () {
+                return root2();
+            };
+            const root2 = function* () {
+                yield false;
+            };
+            t.false(run(root()));
+        });
+        s.test('run - depth 2, yield generator yield true', t => {
+            const root = function* () {
+                yield yield root2();
+            };
+            const root2 = function* () {
+                yield true;
+            };
+            t.true(run(root()));
+        });
+        s.test('run - depth 2, yield generator yield false', t => {
+            const root = function* () {
+                yield yield root2();
+            };
+            const root2 = function* () {
+                yield false;
+            };
+            t.false(run(root()));
+        });
+        s.test('run - depth 3, count to 0-index 10', t => {
+            const count10 = function* (a: UnboundAddress<number>) {
+                for (let i = 0, binding = bind(a, i); i < 10; i++, binding = bind(a, i))
+                while (yield binding)
+                if ((yield true) === false) return;
+            };
+            const last = function*<T> (a: UnboundAddress<T>, g: Predicate) {
+                let value: T = null;
+                while (yield g) if (bound(a)) value = a.value;
+                if (value !== null) yield yield bind(a, value);
+            };
+            const root = function* () {
+                const a = addr<number>();
+                const lasting = last(a, count10(a));
+                while (yield lasting) yield bound(a) && a.value === 9;
+            };
+            t.true(run(root()));
+        });
+        s.test('run - depth 2, sibling 2, 10 * 10', t => {
+            const count10 = function* (a: UnboundAddress<number>) {
+                for (let i = 0, binding = bind(a, i); i < 10; i++, binding = bind(a, i))
+                while (yield binding)
+                if ((yield true) === false) return;
+            };
+            const root = function* () {
+                let ary = [];
+                const av = addr<number>();
+                const bv = addr<number>();
+                const a = count10(av);
+                let b: Predicate;
+                while ((yield a) && (b = count10(bv))) while (yield b) ary.push([read(av), read(bv)]);
+                // console.log(JSON.stringify(ary));
+                yield ary.length === 100;
+            };
+            t.true(run(root()));
         });
     } finally {
         const r = new Runner(s);

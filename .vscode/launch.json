@@ -14,6 +14,7 @@
             "env": {
                 "NODE_ENV": "test"
             },
+            "runtimeArgs": ["-r", "source-map-support/register"],
             "program": "${workspaceFolder}/dist/index.js",
             "preLaunchTask": "tsc: build - tsconfig.json",
             "outFiles": [
