@@ -6,18 +6,26 @@ function rule(s: TemplateStringsArray, ...args) {}
 // const betweenA = rule`(N, A, B) :- N >= A, N <= B`;
 // const betweenB = rule`(N, A, B) :- N is A; A1 is A + 1, A1 < B, ${between}(N, A1, B)`;
 
-interface UnboundAddress<T> {
+export interface UnboundAddress<T> {
     set(value: T): BoundAddress<T>;
+    refer(addr: UnboundAddress<T> | BoundAddress<T> | Reference<T>): Reference<T>;
 }
 
-interface BoundAddress<T> {
+export interface Reference<T> {
+    readonly ref: UnboundAddress<T> | BoundAddress<T>;
+    deref(): UnboundAddress<T> | BoundAddress<T>;
+    unref(): UnboundAddress<T>;
+}
+
+export interface BoundAddress<T> {
     readonly value: T;
     get(): T;
     unset(): UnboundAddress<T>;
 }
 
-class Address<T> {
+class Address<T> implements UnboundAddress<T>, BoundAddress<T>, Reference<T> {
     value: T = null;
+    ref: Address<T> = null;
     get() {
         return this.value;
     }
@@ -29,54 +37,136 @@ class Address<T> {
         this.value = null;
         return this;
     }
+    refer(addr: UnboundAddress<T> | BoundAddress<T>): Reference<T> {
+        if (addr instanceof Address) {
+            this.ref = addr;
+            return this;
+        }
+        throw new Error('May only refer to other Address objects');
+    }
+    deref(): UnboundAddress<T> | BoundAddress<T> {
+        if (this.ref === null) return this;
+        return this.ref.deref();
+    }
+    unref(): UnboundAddress<T> {
+        this.ref === null;
+        return this;
+    }
 }
 
 // class BoundAddress<T> extends Address<T> {
 
 // }
 
-function addr<T = any>(): UnboundAddress<T> {
+export function addr<T = any>(): UnboundAddress<T> {
     return new Address<T>();
 }
 
-function* bind<T>(a: Ptr<T>, v: T): Predicate {
-    if (unbound(a)) {
-        const b = a.set(v);
-        yield true;
-        b.unset();
+export function* bindValue<T>(a: UnboundAddress<T>, b: T): Generator<boolean, void, boolean> {
+    const ba = a.set(b);
+    yield true;
+    ba.unset();
+}
+
+export function* bindRef<T>(a: UnboundAddress<T>, b: UnboundAddress<T> | BoundAddress<T> | Reference<T>): Generator<boolean, void, boolean> {
+    const ra = a.refer(b);
+    yield true;
+    ra.unref();
+}
+
+export function* bindUnbound<T>(a: UnboundAddress<T>, b: T | BoundAddress<T> | UnboundAddress<T>) {
+    if (value(b)) {
+        return bindValue(a, b);
     } else {
-        yield bound(a) ? a.get() === v : a === v;
+        return bindRef(a, b);
     }
 }
 
-type Ptr<T = any> = T | BoundAddress<T> | UnboundAddress<T>;
+export function* bind2<T>(a: Ptr<T>, b: Ptr<T>): Generator<boolean, Generator<boolean, void, boolean>, boolean> {
+    let a2: T | UnboundAddress<T> | BoundAddress<T>;
+    let b2: T | UnboundAddress<T> | BoundAddress<T>;
+    if (ref(a)) a2 = a.deref();
+    else a2 = a;
+    if (ref(b)) b2 = b.deref();
+    else b2 = b;
 
-function value<T>(p: Ptr<T>): p is T {
+    if (a2 === b2) {
+        yield true;
+    } else if ((value(a2) || bound(a2)) && (value(b2) || bound(b2))) {
+        yield read(a2) === read(b2);
+    } else if (value(a2)) {
+        return bindValue(b2 as UnboundAddress<T>, a2);
+    } else if (bound(a2)) {
+        return bindRef(b2 as UnboundAddress<T>, a2);
+    } else if (value(b2)) {
+        return bindValue(a2, b2);
+    } else {
+        return bindRef(a2, b2);
+    }
+}
+
+export function* bind<T>(a: Ptr<T>, v: Ptr<T>): Predicate {
+    if (value(a) && value(v) || a === v) {
+        yield a === v;
+    } else if (value(a)) {
+        return bind(v, a);
+    } else if (ref(a)) {
+        return bind(a.deref(), v);
+    } else if (unbound(a)) {
+        if (value(v)) {
+            const b = a.set(v);
+            yield true;
+            b.unset();
+        } else {
+            const b = a.refer(v);
+            yield true;
+            b.unref();
+        }
+    } else {
+        if (value(v)) {
+            yield a.get() === v;
+        } else if (bound(v)) {
+            yield a.get() === v.get();
+        } else {
+            return bind(v, a);
+        }
+    }
+}
+
+export type Ptr<T = any> = T | BoundAddress<T> | UnboundAddress<T> | Reference<T>;
+
+export function value<T>(p: Ptr<T>): p is T {
     return !(p instanceof Address);
 }
 
-function unbound<T>(p: Ptr<T>): p is UnboundAddress<T> {
-    return p instanceof Address && p.value === null;
+export function unbound<T>(p: Ptr<T>): p is UnboundAddress<T> {
+    return p instanceof Address && p.ref === null && p.value === null;
 }
 
-function bound<T>(p: Ptr<T>): p is BoundAddress<T> {
-    return p instanceof Address && p.value !== null;
+export function bound<T>(p: Ptr<T>): p is BoundAddress<T> {
+    return p instanceof Address && p.ref === null && p.value !== null;
 }
 
-function read<T>(p: UnboundAddress<T>): never;
-function read<T>(p: T | BoundAddress<T>): T
-function read<T>(p: Ptr<T>): T
-function read<T>(p: Ptr<T>): T {
+export function ref<T>(p: Ptr<T>): p is Reference<T> {
+    return p instanceof Address && p.ref !== null;
+}
+
+export function read<T>(p: UnboundAddress<T>): never;
+export function read<T>(p: T | BoundAddress<T>): T
+export function read<T>(p: Ptr<T>): T
+export function read<T>(p: Ptr<T>): T {
     if (bound(p)) return p.value;
     if (value(p)) return p;
+    if (ref(p)) return read(p.deref());
     throw new Error('Cannot read non-value or unbound address');
 }
 
-function write<T>(p: T | BoundAddress<T>, v: T): never;
-function write<T>(p: UnboundAddress<T>, v: T): BoundAddress<T>;
-function write<T>(p: Ptr<T>, v: T): BoundAddress<T>;
-function write<T>(p: Ptr<T>, v: T): BoundAddress<T> {
+export function write<T>(p: T | BoundAddress<T>, v: T): never;
+export function write<T>(p: UnboundAddress<T>, v: T): BoundAddress<T>;
+export function write<T>(p: Ptr<T>, v: T): BoundAddress<T>;
+export function write<T>(p: Ptr<T>, v: T): BoundAddress<T> {
     if (unbound(p)) return p.set(v);
+    if (ref(p)) return write(p.deref(), v);
     throw new Error('Cannot write value or bound address');
 }
 
@@ -167,7 +257,7 @@ enum PotType {
     Promise,
 }
 
-class Pot<T = any> {
+export class Pot<T = any> {
     readonly value: unknown;
     private readonly type: PotType;
 
@@ -359,9 +449,9 @@ function loop(stack: RunState): Promise<RunState> | RunState {
     return stack;
 }
 
-function run(p: SyncPredicate): boolean;
-function run(p: Predicate): Promise<boolean>;
-function run(p: Predicate): boolean | Promise<boolean> {
+export function ask(p: SyncPredicate): boolean;
+export function ask(p: Predicate): Promise<boolean>;
+export function ask(p: Predicate): boolean | Promise<boolean> {
     let link = Link.init(p);
     let direction = true;
     return Pot.some({link, direction})
@@ -568,49 +658,49 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
             const root = function* () {
                 yield true;
             };
-            t.true(run(root()));
+            t.true(ask(root()));
         });
         s.test('run - depth 1, yield false', t => {
             const root = function* () {
                 yield false;
             };
-            t.false(run(root()));
+            t.false(ask(root()));
         });
         s.test('run - depth 1, yield resolve true', async t => {
             function* root() {
                 yield Promise.resolve(true);
             }
-            t.true(await run(root()));
+            t.true(await ask(root()));
         });
         s.test('run - depth 1, yield resolve false', async t => {
             function* root() {
                 yield Promise.resolve(false);
             }
-            t.false(await run(root()));
+            t.false(await ask(root()));
         });
         s.test('run - depth 1, return true', t => {
             const root = function* () {
                 return true;
             };
-            t.true(run(root()));
+            t.true(ask(root()));
         });
         s.test('run - depth 1, return false', t => {
             const root = function* () {
                 return false;
             };
-            t.false(run(root()));
+            t.false(ask(root()));
         });
         s.test('run - depth 1, return resolve true', async t => {
             const root = function* () {
                 return Promise.resolve(true);
             };
-            t.true(await run(root()));
+            t.true(await ask(root()));
         });
         s.test('run - depth 1, return resolve false', async t => {
             const root = function* () {
                 return Promise.resolve(false);
             };
-            t.false(await run(root()));
+            t.false(await ask(root()));
         });
         s.test('run - depth 1, return generator yield true', t => {
             const root = function* () {
@@ -619,7 +709,7 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
             const root2 = function* () {
                 yield true;
             };
-            t.true(run(root()));
+            t.true(ask(root()));
         });
         s.test('run - depth 1, return generator yield false', t => {
             const root = function* () {
@@ -628,7 +718,7 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
             const root2 = function* () {
                 yield false;
             };
-            t.false(run(root()));
+            t.false(ask(root()));
         });
         s.test('run - depth 2, yield generator yield true', t => {
             const root = function* () {
@@ -637,7 +727,7 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
             const root2 = function* () {
                 yield true;
             };
-            t.true(run(root()));
+            t.true(ask(root()));
         });
         s.test('run - depth 2, yield generator yield false', t => {
             const root = function* () {
@@ -646,7 +736,7 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
             const root2 = function* () {
                 yield false;
             };
-            t.false(run(root()));
+            t.false(ask(root()));
         });
         s.test('run - depth 3, count to 0-index 10', t => {
             const count10 = function* (a: UnboundAddress<number>) {
@@ -664,7 +754,7 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
                 const lasting = last(a, count10(a));
                 while (yield lasting) yield bound(a) && a.value === 9;
             };
-            t.true(run(root()));
+            t.true(ask(root()));
         });
         s.test('run - depth 2, sibling 2, 10 * 10', t => {
             const count10 = function* (a: UnboundAddress<number>) {
@@ -679,10 +769,9 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
                 const a = count10(av);
                 let b: Predicate;
                 while ((yield a) && (b = count10(bv))) while (yield b) ary.push([read(av), read(bv)]);
-                // console.log(JSON.stringify(ary));
                 yield ary.length === 100;
             };
-            t.true(run(root()));
+            t.true(ask(root()));
         });
     } finally {
         const r = new Runner(s);
