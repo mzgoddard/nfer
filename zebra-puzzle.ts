@@ -11,9 +11,12 @@ enum MovieGenre {SciFi}
 type House = [Ptr<Color>, Ptr<Nation>, Ptr<Pet>, Ptr<Drink>, Ptr<MovieGenre>];
 type List = [Ptr<House>, Ptr<House>, Ptr<House>, Ptr<House>, Ptr<House>];
 
+const house = function(a, b, c, d, e): List {
+    return [a, b, c, d, e];
+};
 const list = function(a, b, c, d, e): List {
     return [a, b, c, d, e];
-}
+};
 
 const match = function* <T>(a: Ptr<T>, b: Ptr<T>) {
     if (a === b) {
@@ -65,54 +68,73 @@ const match = function* <T>(a: Ptr<T>, b: Ptr<T>) {
 }
 
 const exists = function* (v, l: List) {
-    let b = bind(v, l[0]);
+    let b = match(v, l[0]);
     while (yield b) if ((yield true) === false) return;
-    b = bind(v, l[1]);
+    b = match(v, l[1]);
     while (yield b) if ((yield true) === false) return;
-    b = bind(v, l[2]);
+    b = match(v, l[2]);
     while (yield b) if ((yield true) === false) return;
-    b = bind(v, l[3]);
+    b = match(v, l[3]);
     while (yield b) if ((yield true) === false) return;
-    b = bind(v, l[4]);
+    b = match(v, l[4]);
     while (yield b) if ((yield true) === false) return;
-}
+};
 
-exists(a, list(a, _, _, _, _))
-exists(a, list(_, a, _, _, _))
-exists(a, list(_, _, a, _, _))
-exists(a, list(_, _, _, a, _))
-exists(a, list(_, _, _, _, a))
+const rightOf = function* (a, b, l) {
+    let r = match(list(b, a, null, null, null), l);
+    while (yield r) if ((yield true) === false) return;
+    r = match(list(null, b, a, null, null), l);
+    while (yield r) if ((yield true) === false) return;
+    r = match(list(null, null, b, a, null), l);
+    while (yield r) if ((yield true) === false) return;
+    r = match(list(null, null, null, b, a), l);
+    while (yield r) if ((yield true) === false) return;
+};
 
-rightOf(a, b, list(b, a, _, _, _))
-rightOf(a, b, list(_, b, a, _, _))
-rightOf(a, b, list(_, _, b, a, _))
-rightOf(a, b, list(_, _, _, b, a))
+const nextTo = function* (a, b, l) {
+    let r = match(list(b, a, null, null, null), l);
+    while (yield r) if ((yield true) === false) return;
+    r = match(list(null, b, a, null, null), l);
+    while (yield r) if ((yield true) === false) return;
+    r = match(list(null, null, b, a, null), l);
+    while (yield r) if ((yield true) === false) return;
+    r = match(list(null, null, null, b, a), l);
+    while (yield r) if ((yield true) === false) return;
+    r = match(list(a, b, null, null, null), l);
+    while (yield r) if ((yield true) === false) return;
+    r = match(list(null, a, b, null, null), l);
+    while (yield r) if ((yield true) === false) return;
+    r = match(list(null, null, a, b, null), l);
+    while (yield r) if ((yield true) === false) return;
+    r = match(list(null, null, null, a, b), l);
+    while (yield r) if ((yield true) === false) return;
+};
 
-nextTo(a, b, list(b, a, _, _, _))
-nextTo(a, b, list(_, b, a, _, _))
-nextTo(a, b, list(_, _, b, a, _))
-nextTo(a, b, list(_, _, _, b, a))
-nextTo(a, b, list(a, b, _, _, _))
-nextTo(a, b, list(_, a, b, _, _))
-nextTo(a, b, list(_, _, a, b, _))
-nextTo(a, b, list(_, _, _, a, b))
+const middle = function* (a, l) {
+    const r = match(list(null, null, a, null, null), l);
+    while (yield r) if ((yield true) === false) return;
+};
 
-middle(a, list(_, _, a, _, _))
+const first = function* (a, l) {
+    const r = match(list(a, null, null, null, null), l);
+    while (yield r) if ((yield true) === false) return;
+};
 
-first(a, list(a, _, _, _, _))
-
-puzzle(houses)
-    exists(house(red, england, _, _, _), houses)
-    exists(house(_, spain, dog, _, _), houses)
-    exists(house(green, _, _, coffee, _), houses)
-    exists(house(_, ukraine, _, tea, _), houses)
-    rightOf(house(green, _, _, _, _), house(ivory, _, _, _, _), houses)
-    exists(house(_, _, snails, _, fantasy), houses)
-    exists(house(yellow, _, _, _, sci-fi), houses)
-    middle(house(_, _, _, milk, _), houses)
-    first(house(_, norweigh, _, _, _), houses)
-    nextTo(house(_, _, _, _, romance), house(_, _, fox, _, _), houses)
-    nextTo(house(_, _, _, _, sci-fi), house(_, _, horses, _, _), houses)
-    exists(house(_, _, _, orange juice, comedy), houses)
-    exists(house(_, japan, _, _, action), houses)
-    exists(house(_, norweigh, _, _, _), houses)
+const puzzle = function* (houses) {
+    let a, b, c, d, e, f, g, h, i, j, k, l, m, n;
+    a = exists(house('red', 'england', null, null, null), houses);
+    while ((yield a) && (b = exists(house(null, 'spain', 'dog', null, null), houses)))
+    while ((yield b) && (c = exists(house('green', null, null, 'coffee', null), houses)))
+    while ((yield c) && (d = exists(house(null, 'ukraine', null, 'tea', null), houses)))
+    while ((yield d) && (e = rightOf(house('green', null, null, null, null), house('ivory', null, null, null, null), houses)))
+    while ((yield e) && (f = exists(house(null, null, 'snails', null, 'fantasy'), houses)))
+    while ((yield f) && (g = exists(house('yellow', null, null, null, 'sci-fi'), houses)))
+    while ((yield g) && (h = middle(house(null, null, null, 'milk', null), houses)))
+    while ((yield h) && (i = first(house(null, 'norweigh', null, null, null), houses)))
+    while ((yield i) && (j = nextTo(house(null, null, null, null, 'romance'), house(null, null, 'fox', null, null), houses)))
+    while ((yield j) && (k = nextTo(house(null, null, null, null, 'sci-fi'), house(null, null, 'horses', null, null), houses)))
+    while ((yield k) && (l = exists(house(null, null, null, 'orange-juice', 'comedy'), houses)))
+    while ((yield l) && (m = exists(house(null, 'japan', null, null, 'action'), houses)))
+    while ((yield m) && (n = nextTo(house(null, 'norweigh', null, null, null), house('blue', null, null, null, null), houses)))
+    while (yield n) if ((yield true) as boolean === false) return;
+};
