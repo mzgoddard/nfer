@@ -26,6 +26,7 @@ export interface BoundAddress<T> {
 class Address<T> implements UnboundAddress<T>, BoundAddress<T>, Reference<T> {
     value: T = null;
     ref: Address<T> = null;
+    id: number = nextId++;
     get() {
         return this.value;
     }
@@ -49,7 +50,7 @@ class Address<T> implements UnboundAddress<T>, BoundAddress<T>, Reference<T> {
         return this.ref.deref();
     }
     unref(): UnboundAddress<T> {
-        this.ref === null;
+        this.ref = null;
         return this;
     }
 }
@@ -63,14 +64,18 @@ export function addr<T = any>(): UnboundAddress<T> {
 }
 
 export function* bindValue<T>(a: UnboundAddress<T>, b: T): Generator<boolean, void, boolean> {
+    // console.log('set value', b)
     const ba = a.set(b);
     yield true;
+    // console.log('unset value', b)
     ba.unset();
 }
 
 export function* bindRef<T>(a: UnboundAddress<T>, b: UnboundAddress<T> | BoundAddress<T> | Reference<T>): Generator<boolean, void, boolean> {
+    // console.log('set ref', b);
     const ra = a.refer(b);
     yield true;
+    // console.log('unset ref', b);
     ra.unref();
 }
 
@@ -170,6 +175,34 @@ export function write<T>(p: Ptr<T>, v: T): BoundAddress<T> {
     throw new Error('Cannot write value or bound address');
 }
 
+export function formatValue(p) {
+    if (typeof p === 'object' && p) {
+        if (Array.isArray(p)) {
+            return p.map(formatAddress);
+        } else {
+            const o = {};
+            for (const key in p) {
+                o[key] = formatAddress(p[key]);
+            }
+            return o;
+        }
+    } else {
+        return p;
+    }
+}
+
+export function formatAddress<T>(p: Ptr<T>): T {
+    if (value(p)) {
+        return formatValue(p);
+    } else if (bound(p)) {
+        return formatValue(p.value);
+    } else if (unbound(p)) {
+        return null;
+    } else {
+        return formatAddress(p.deref());
+    }
+}
+
 function* is(lhs: Ptr, rhs: Ptr) {
     yield true;
 }
@@ -208,34 +241,41 @@ type Predicate = Generator<PredicateYield | Promise<PredicateYield>, PredicateRe
 
 class Link<T> {
     value: T;
+    inPlaceOf: T;
     parent: Link<T>;
     sibling: Link<T>;
     child: Link<T>;
 
     constructor(value: T, parent: Link<T> = null, sibling: Link<T> = null, child: Link<T> = null) {
         this.value = value;
+        this.inPlaceOf = value;
         this.parent = parent;
         this.sibling = sibling;
         this.child = child;
     }
 
     down() {
+        // console.log('down', JSON.stringify(this.child && this.child.inPlaceOf), JSON.stringify(this.inPlaceOf));
         return this.child;
     }
 
     up() {
+        // console.log('up', JSON.stringify(this.inPlaceOf), JSON.stringify(this.child && this.child.inPlaceOf));
         return this.parent;
     }
 
     push(value: T) {
+        // if (!(value as unknown as {__id}).__id) (value as unknown as {__id}).__id = nextId++;
+        // console.log('push', JSON.stringify(this.child && this.child.inPlaceOf), JSON.stringify(value));
         return (this.child = new Link(value, this, this.child));
     }
 
     pop() {
-        if (this.sibling) {
-            this.parent.child = new Link(this.sibling.value, this.parent, this.sibling.sibling, this.sibling.child);
-        } else if (this.child) {
+        // console.log('pop', JSON.stringify(this.inPlaceOf), JSON.stringify(this.child && this.child.inPlaceOf));
+        if (this.child) {
             throw new Error('Popping Link that has a child');
+        } else if (this.sibling) {
+            this.parent.child = this.sibling;
         } else {
             this.parent.child = null;
         }
@@ -353,28 +393,38 @@ export class Pot<T = any> {
     }
 }
 
-type RunState = {link: Link<Predicate>, direction: boolean, unwindLink: Link<Predicate>};
+type RunState = {link: Link<Predicate>, direction: boolean, loops: number, unwindLink: Link<Predicate>, start: number};
 type PredicateYield = Predicate | boolean | void;
 type PredicateReturn = Predicate | boolean | void;
 
+let nextId = 1;
+
 function stepYield(state: RunState, value: PredicateYield) {
     if (typeof value === 'object') {
+        // if (!(value as unknown as {__id}).__id) (value as unknown as {__id}).__id = nextId++;
         state.direction = true;
-        if (state.link.child && state.link.child.value === value) {
+        if (state.link.child && (state.link.child.inPlaceOf === value)) {
+            // state.link.child.value !== value && console.log('down');
             state.link = state.link.down();
         } else {
+            // console.log('push', state.link.child && JSON.stringify(state.link.child.inPlaceOf), JSON.stringify(value));
             state.link = state.link.push(value);
         }
     } else if (value === true) {
         state.direction = true;
+        // console.log('up');
         state.link = state.link.up();
     } else {
         state.direction = false;
+        if (!state.unwindLink) state.unwindLink = state.link.parent;
         if (state.link.child) {
-            if (!state.unwindLink) state.unwindLink = state.link.parent;
-            state.link = state.link.down();
+            while (state.link.child) {
+                // console.log('down');
+                state.link = state.link.down();
+            }
         } else {
-            state.link = state.link.pop();
+            // console.log('pop');
+            // state.link = state.link.pop();
         }
     }
     return state;
@@ -383,20 +433,31 @@ function stepYield(state: RunState, value: PredicateYield) {
 function stepReturn(state: RunState, value: PredicateReturn) {
     if (typeof value === 'object') {
         state.direction = true;
-        const child = state.link.child;
-        state.link = state.link.pop().push(value);
-        state.link.child = child;
+        // const inPlaceOf = state.link.inPlaceOf;
+        // const child = state.link.child;
+        // console.log('pop', 'push');
+        // state.link = state.link.pop().push(value);
+        // state.link.inPlaceOf = inPlaceOf;
+        // state.link.child = child;
+        state.link.value = value;
         if (state.link.child) {
             if (!state.unwindLink) state.unwindLink = state.link;
-            state.link = state.link.down();
+            while (state.link.child) {
+                // console.log('down');
+                state.link = state.link.down();
+            }
         }
     } else {
         state.direction = value === true;
+        if (!state.unwindLink) state.unwindLink = state.link.parent;
         if (state.link.child) {
-            if (!state.unwindLink) state.unwindLink = state.link.parent;
-            state.link = state.link.down();
+            while (state.link.child) {
+                // console.log('down');
+                state.link = state.link.down();
+            }
         } else {
-            state.link = state.link.pop();
+            // console.log('pop');
+            // state.link = state.link.pop();
         }
     }
     return state;
@@ -414,8 +475,21 @@ function step(state: RunState): Promise<RunState> | RunState {
         const out = state.link.value.next(false);
 
         if (out.value === false || out.value == null) {
-            if (state.link.child) state.link = state.link.down();
-            else state.link = state.link.pop();
+            if (state.link.child) {
+                throw new Error('Zombie child');
+            }
+            else {
+                // console.log('pop');
+                state.link = state.link.pop();
+                if (state.link === state.unwindLink) {
+                    state.unwindLink = null;
+                    return state;
+                }
+                while (state.link.child) {
+                    // console.log('down');
+                    state.link = state.link.down();
+                }
+            }
         } else {
             throw new Error(`yielding or returning false or null are accepted when unwinding: ${out.value}`);
         }
@@ -442,6 +516,7 @@ function step(state: RunState): Promise<RunState> | RunState {
 
 function loop(stack: RunState): Promise<RunState> | RunState {
     while (stack.link.value !== null) {
+        stack.loops++;
         const nextStack = step(stack);
         if (nextStack instanceof Promise) return nextStack.then(loop);
         stack = nextStack;
@@ -454,8 +529,9 @@ export function ask(p: Predicate): Promise<boolean>;
 export function ask(p: Predicate): boolean | Promise<boolean> {
     let link = Link.init(p);
     let direction = true;
-    return Pot.some({link, direction})
+    return Pot.some({link, direction, loops: 0, start: Date.now()})
         .map(loop)
+        .map(state => (console.log(state.loops, Date.now() - state.start), state))
         .map(({direction}) => direction, () => false)
         .unwrap();
 }
