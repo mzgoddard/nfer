@@ -524,14 +524,17 @@ function loop(stack: RunState): Promise<RunState> | RunState {
     return stack;
 }
 
+const formatTime = (d: Date) => `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${d.getMilliseconds().toString().padStart(3, '0')}`;
+
 export function ask(p: SyncPredicate): boolean;
 export function ask(p: Predicate): Promise<boolean>;
 export function ask(p: Predicate): boolean | Promise<boolean> {
     let link = Link.init(p);
     let direction = true;
+    console.log(`start:\t${(formatTime)(new Date())}`);
     return Pot.some({link, direction, loops: 0, start: Date.now()})
         .map(loop)
-        .map(state => (console.log(state.loops, Date.now() - state.start), state))
+        .map(state => (console.log(`end:\t${(formatTime)(new Date())}\nloops:\t${state.loops}\ndt:\t${Date.now() - state.start}`), state))
         .map(({direction}) => direction, () => false)
         .unwrap();
 }

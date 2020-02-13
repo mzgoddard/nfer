@@ -151,10 +151,30 @@ const puzzle = function* (houses) {
     while (yield n) if ((yield true) as boolean === false) return;
 };
 
+const zebra = function* (nation, houses) {
+    const f = exists(list(addr(), nation, 'zebra', addr(), addr()), houses);
+    while (yield f) if ((yield true) as boolean === false) return;
+};
+
+const and = function* (f, g) {
+    const a = f();
+    let b;
+    while ((yield a) && (b = g()))
+    while (yield b) if ((yield true) as boolean === false) return;
+};
+
 (async () => {
     const h = addr();
-    if (ask(puzzle(h))) {
-        console.log(JSON.stringify(formatAddress(h), null, "  "));
+    const zebraOwner = addr();
+    const waterDrinker = addr();
+    if (ask(and(
+        () => puzzle(h),
+        () => and(
+            () => exists(list(addr(), zebraOwner, 'zebra', addr(), addr()), h as any),
+            () => exists(list(addr(), waterDrinker, addr(), 'water', addr()), h as any)
+        )
+    ))) {
+        console.log(formatAddress(zebraOwner), formatAddress(waterDrinker));
     } else {
         console.log('no answer');
     }
