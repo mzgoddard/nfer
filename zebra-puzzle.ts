@@ -68,27 +68,37 @@ const match = function* <T>(a: Ptr<T>, b: Ptr<T>) {
 }
 
 const exists = function* (v, l: List) {
+    let i = 0;
+    top:
+    while (true) {
+        if (i++) {
+            // console.log('false', v);
+            if ((yield false) === false) continue top;
+        } else {
+            // console.log('first', v);
+        }
     // console.log(1, JSON.stringify(l, null, "  "));
     {
         const b = match(list(v, addr(), addr(), addr(), addr()), l);
-        while ((yield b)) {if ((yield true) === false) return;}
+        while ((yield b)) {if ((yield true) === false) continue top;}
     }
     // console.log(2, JSON.stringify(l, null, "  "));
     {
         const b = match(list(addr(), v, addr(), addr(), addr()), l);
-        while ((yield b)) {if ((yield true) === false) return;}
+        while ((yield b)) {if ((yield true) === false) continue top;}
     }
     // console.log(3, JSON.stringify(l, null, "  "));
     {
     const b = match(list(addr(), addr(), v, addr(), addr()), l);
-    while (yield b) {if ((yield true) === false) return;}
+    while (yield b) {if ((yield true) === false) continue top;}
     }
     {const b = match(list(addr(), addr(), addr(), v, addr()), l);
-    while (yield b) {if ((yield true) === false) return;}
+    while (yield b) {if ((yield true) === false) continue top;}
     }
     {
         const b = match(list(addr(), addr(), addr(), addr(), v), l);
-        while (yield b) {if ((yield true) === false) return;}
+        while (yield b) {if ((yield true) === false) continue top;}
+    }
     }
 };
 
@@ -134,8 +144,10 @@ const first = function* (a, l) {
 
 const puzzle = function* (houses) {
     let a, b, c, d, e, f, g, h, i, j, k, l, m, n;
+    // while (yield call(exists, ))
     a = exists(house('red', 'england', addr(), addr(), addr()), houses);
-    while ((yield a) && (b = exists(house(addr(), 'spain', 'dog', addr(), addr()), houses)))
+    b = exists(house(addr(), 'spain', 'dog', addr(), addr()), houses);
+    while ((yield a))
     while ((yield b) && (c = exists(house('green', addr(), addr(), 'coffee', addr()), houses)))
     while ((yield c) && (d = exists(house(addr(), 'ukraine', addr(), 'tea', addr()), houses)))
     while ((yield d) && (e = rightOf(house('green', addr(), addr(), addr(), addr()), house('ivory', addr(), addr(), addr(), addr()), houses)))
