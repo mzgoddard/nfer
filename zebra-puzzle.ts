@@ -1,6 +1,6 @@
 // house(color, nation, pet, drink, movie genre)
 
-import {Ptr, bind, bound, unbound, value, ref, read, UnboundAddress, BoundAddress, bind2, bindUnbound, ask, addr, formatValue, formatAddress} from '.';
+import {Ptr, bind, bound, unbound, value, ref, read, UnboundAddress, BoundAddress, bind2, bindUnbound, ask, addr, formatValue, formatAddress, SyncPredicate} from '.';
 
 enum Color {Red}
 enum Nation {Japan}
@@ -18,7 +18,7 @@ const list = function(a, b, c, d, e): List {
     return [a, b, c, d, e];
 };
 
-const match = function* <T>(a: Ptr<T>, b: Ptr<T>) {
+const match = function* <T>(a: Ptr<T>, b: Ptr<T>): Generator<true | SyncPredicate, void | SyncPredicate, boolean> {
     if (a === b) {
         yield true;
         return;
@@ -68,35 +68,37 @@ const match = function* <T>(a: Ptr<T>, b: Ptr<T>) {
 }
 
 const exists = function* (v, l: List) {
+    const _a = addr();
+    const _b = addr();
+    const _c = addr();
+    const _d = addr();
     let i = 0;
     top:
     while (true) {
         if (i++) {
-            // console.log('false', v);
+            // console.log('reset', v);
             if ((yield false) === false) continue top;
         } else {
             // console.log('first', v);
         }
-    // console.log(1, JSON.stringify(l, null, "  "));
     {
-        const b = match(list(v, addr(), addr(), addr(), addr()), l);
+        const b = match(list(v, _a, _b, _c, _d), l);
+        while ((yield b)) {if ((yield true) as boolean === false) continue top;}
+    }
+    {
+        const b = match(list(_a, v, _b, _c, _d), l);
         while ((yield b)) {if ((yield true) === false) continue top;}
     }
-    // console.log(2, JSON.stringify(l, null, "  "));
     {
-        const b = match(list(addr(), v, addr(), addr(), addr()), l);
-        while ((yield b)) {if ((yield true) === false) continue top;}
-    }
-    // console.log(3, JSON.stringify(l, null, "  "));
-    {
-    const b = match(list(addr(), addr(), v, addr(), addr()), l);
-    while (yield b) {if ((yield true) === false) continue top;}
-    }
-    {const b = match(list(addr(), addr(), addr(), v, addr()), l);
-    while (yield b) {if ((yield true) === false) continue top;}
+        const b = match(list(_a, _b, v, _c, _d), l);
+        while (yield b) {if ((yield true) === false) continue top;}
     }
     {
-        const b = match(list(addr(), addr(), addr(), addr(), v), l);
+        const b = match(list(_a, _b, _c, v, _d), l);
+        while (yield b) {if ((yield true) === false) continue top;}
+    }
+    {
+        const b = match(list(_a, _b, _c, _d, v), l);
         while (yield b) {if ((yield true) === false) continue top;}
     }
     }
@@ -147,12 +149,15 @@ const puzzle = function* (houses) {
     // while (yield call(exists, ))
     a = exists(house('red', 'england', addr(), addr(), addr()), houses);
     b = exists(house(addr(), 'spain', 'dog', addr(), addr()), houses);
+    c = exists(house('green', addr(), addr(), 'coffee', addr()), houses);
+    d = exists(house(addr(), 'ukraine', addr(), 'tea', addr()), houses);
+    g = exists(house('yellow', addr(), addr(), addr(), 'sci-fi'), houses);
     while ((yield a))
-    while ((yield b) && (c = exists(house('green', addr(), addr(), 'coffee', addr()), houses)))
-    while ((yield c) && (d = exists(house(addr(), 'ukraine', addr(), 'tea', addr()), houses)))
+    while ((yield b))
+    while ((yield c))
     while ((yield d) && (e = rightOf(house('green', addr(), addr(), addr(), addr()), house('ivory', addr(), addr(), addr(), addr()), houses)))
     while ((yield e) && (f = exists(house(addr(), addr(), 'snails', addr(), 'fantasy'), houses)))
-    while ((yield f) && (g = exists(house('yellow', addr(), addr(), addr(), 'sci-fi'), houses)))
+    while ((yield f))
     while ((yield g) && (h = middle(house(addr(), addr(), addr(), 'milk', addr()), houses)))
     while ((yield h) && (i = first(house(addr(), 'norweigh', addr(), addr(), addr()), houses)))
     while ((yield i) && (j = nextTo(house(addr(), addr(), addr(), addr(), 'romance'), house(addr(), addr(), 'fox', addr(), addr()), houses)))

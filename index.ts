@@ -110,7 +110,7 @@ export function* bind2<T>(a: Ptr<T>, b: Ptr<T>): Generator<boolean, Generator<bo
     }
 }
 
-export function* bind<T>(a: Ptr<T>, v: Ptr<T>): Predicate {
+export function* bind<T>(a: Ptr<T>, v: Ptr<T>): SyncPredicate {
     if (value(a) && value(v) || a === v) {
         yield a === v;
     } else if (value(a)) {
@@ -236,8 +236,13 @@ function* ttable() {
     }
 }
 
-type SyncPredicate = Generator<PredicateYield, PredicateReturn, boolean>;
-type Predicate = Generator<PredicateYield | Promise<PredicateYield>, PredicateReturn | Promise<PredicateReturn>, boolean>;
+export type SyncPredicateYield = SyncPredicate | boolean | void;
+export type SyncPredicateReturn = SyncPredicate | boolean | void;
+export type SyncPredicate = Generator<SyncPredicateYield, SyncPredicateReturn, boolean>;
+type MaybeAsync<T> = T | Promise<T>;
+export type PredicateYield = Predicate | boolean | void;
+export type PredicateReturn = Predicate | boolean | void;
+export type Predicate = Generator<MaybeAsync<PredicateYield>, MaybeAsync<PredicateReturn>, boolean>;
 
 class Link<T> {
     value: T;
@@ -252,6 +257,11 @@ class Link<T> {
         this.parent = parent;
         this.sibling = sibling;
         this.child = child;
+    }
+
+    get depth(): number {
+        if (this.parent) return this.parent.depth + 1;
+        return 0;
     }
 
     down() {
@@ -393,9 +403,7 @@ export class Pot<T = any> {
     }
 }
 
-type RunState = {link: Link<Predicate>, direction: boolean, loops: number, unwindLink: Link<Predicate>, start: number};
-type PredicateYield = Predicate | boolean | void;
-type PredicateReturn = Predicate | boolean | void;
+type RunState = {link: Link<Predicate>, direction: boolean, loops: number, unwindLink: Link<Predicate>, start: number, maxDepth: number};
 
 let nextId = 1;
 
@@ -427,6 +435,7 @@ function stepYield(state: RunState, value: PredicateYield) {
             // state.link = state.link.pop();
         }
     }
+    state.maxDepth = Math.max(state.maxDepth, state.link.depth);
     return state;
 }
 
@@ -460,10 +469,11 @@ function stepReturn(state: RunState, value: PredicateReturn) {
             // state.link = state.link.pop();
         }
     }
+    state.maxDepth = Math.max(state.maxDepth, state.link.depth);
     return state;
 }
 
-function step(state: RunState): Promise<RunState> | RunState {
+function step(state: RunState): MaybeAsync<RunState> {
     if (state.link.value === null) return state;
 
     if (state.unwindLink) {
@@ -472,6 +482,7 @@ function step(state: RunState): Promise<RunState> | RunState {
             return state;
         }
 
+        state.maxDepth = Math.max(state.maxDepth, state.link.depth);
         const out = state.link.value.next(false);
 
         if (out.value === false || out.value == null) {
@@ -496,6 +507,7 @@ function step(state: RunState): Promise<RunState> | RunState {
         return state;
     }
 
+    state.maxDepth = Math.max(state.maxDepth, state.link.depth);
     const {value, done} = state.link.value.next(state.direction);
 
     if (done) {
@@ -514,7 +526,7 @@ function step(state: RunState): Promise<RunState> | RunState {
     return state;
 }
 
-function loop(stack: RunState): Promise<RunState> | RunState {
+function loop(stack: RunState): MaybeAsync<RunState> {
     while (stack.link.value !== null) {
         stack.loops++;
         const nextStack = step(stack);
@@ -532,9 +544,9 @@ export function ask(p: Predicate): boolean | Promise<boolean> {
     let link = Link.init(p);
     let direction = true;
     console.log(`start:\t${(formatTime)(new Date())}`);
-    return Pot.some({link, direction, loops: 0, start: Date.now()})
+    return Pot.some({link, direction, loops: 0, start: Date.now(), maxDepth: 0})
         .map(loop)
-        .map(state => (console.log(`end:\t${(formatTime)(new Date())}\nloops:\t${state.loops}\ndt:\t${Date.now() - state.start}`), state))
+        .map(state => (console.log(`end:\t${(formatTime)(new Date())}\nloops:\t${state.loops}\ndt:\t${Date.now() - state.start}\ndepth:\t${state.maxDepth}`), state))
         .map(({direction}) => direction, () => false)
         .unwrap();
 }
@@ -846,7 +858,7 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
                 const av = addr<number>();
                 const bv = addr<number>();
                 const a = count10(av);
-                let b: Predicate;
+                let b: SyncPredicate;
                 while ((yield a) && (b = count10(bv))) while (yield b) ary.push([read(av), read(bv)]);
                 yield ary.length === 100;
             };
