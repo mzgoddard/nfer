@@ -23,7 +23,7 @@ export interface BoundAddress<T> {
     unset(): UnboundAddress<T>;
 }
 
-class Address<T> implements UnboundAddress<T>, BoundAddress<T>, Reference<T> {
+export class Address<T> implements UnboundAddress<T>, BoundAddress<T>, Reference<T> {
     value: T = null;
     ref: Address<T> = null;
     id: number = nextId++;
@@ -156,6 +156,11 @@ export function ref<T>(p: Ptr<T>): p is Reference<T> {
     return p instanceof Address && p.ref !== null;
 }
 
+export function deref<T>(p: Ptr<T>): T | BoundAddress<T> | UnboundAddress<T> {
+    if (ref(p)) return p.deref();
+    return p;
+}
+
 export function read<T>(p: UnboundAddress<T>): never;
 export function read<T>(p: T | BoundAddress<T>): T
 export function read<T>(p: Ptr<T>): T
@@ -236,6 +241,18 @@ function* ttable() {
     }
 }
 
+// class AddressName {
+//     name: string;
+// }
+// type PredicateFunctor<Args extends any[]> = (...args: Args) => Predicate | SyncPredicate;
+// type Atom<F extends PredicateFunctor<Args> = PredicateFunctor<any[]>, Args extends any[] = any[]> = [F, Args];
+// type Fact = [any[]] | [any[], Atom[]];
+// interface FactSet<P extends SyncPredicate | Predicate> {
+//     (...args: any[]): P;
+//     add(fact: Fact): this;
+//     removeAll(): this;
+// }
+
 export type SyncPredicateYield = SyncPredicate | boolean | void;
 export type SyncPredicateReturn = SyncPredicate | boolean | void;
 export type SyncPredicate = Generator<SyncPredicateYield, SyncPredicateReturn, boolean>;
@@ -257,6 +274,11 @@ class Link<T> {
         this.parent = parent;
         this.sibling = sibling;
         this.child = child;
+    }
+
+    get root(): Link<T> {
+        if (this.parent) return this.parent.root;
+        return this;
     }
 
     get depth(): number {
@@ -403,7 +425,23 @@ export class Pot<T = any> {
     }
 }
 
-type RunState = {link: Link<Predicate>, direction: boolean, loops: number, unwindLink: Link<Predicate>, start: number, maxDepth: number};
+type RunState = {
+    link: Link<Predicate>;
+    direction: boolean;
+    unwindLink: Link<Predicate>;
+
+    loops: number;
+    start: number;
+    maxDepth: number;
+    profile: {
+        link: {
+            down: number;
+            up: number;
+            push: number;
+            pop: number;
+        };
+    };
+};
 
 let nextId = 1;
 
@@ -413,14 +451,17 @@ function stepYield(state: RunState, value: PredicateYield) {
         state.direction = true;
         if (state.link.child && (state.link.child.inPlaceOf === value)) {
             // state.link.child.value !== value && console.log('down');
+            state.profile.link.down++;
             state.link = state.link.down();
         } else {
             // console.log('push', state.link.child && JSON.stringify(state.link.child.inPlaceOf), JSON.stringify(value));
+            state.profile.link.push++;
             state.link = state.link.push(value);
         }
     } else if (value === true) {
         state.direction = true;
         // console.log('up');
+        state.profile.link.up++;
         state.link = state.link.up();
     } else {
         state.direction = false;
@@ -428,6 +469,7 @@ function stepYield(state: RunState, value: PredicateYield) {
         if (state.link.child) {
             while (state.link.child) {
                 // console.log('down');
+                state.profile.link.down++;
                 state.link = state.link.down();
             }
         } else {
@@ -453,6 +495,7 @@ function stepReturn(state: RunState, value: PredicateReturn) {
             if (!state.unwindLink) state.unwindLink = state.link;
             while (state.link.child) {
                 // console.log('down');
+                state.profile.link.down++;
                 state.link = state.link.down();
             }
         }
@@ -462,6 +505,7 @@ function stepReturn(state: RunState, value: PredicateReturn) {
         if (state.link.child) {
             while (state.link.child) {
                 // console.log('down');
+                state.profile.link.down++;
                 state.link = state.link.down();
             }
         } else {
@@ -473,38 +517,50 @@ function stepReturn(state: RunState, value: PredicateReturn) {
     return state;
 }
 
-function step(state: RunState): MaybeAsync<RunState> {
-    if (state.link.value === null) return state;
-
-    if (state.unwindLink) {
+function unwind(state: RunState, value: PredicateYield) {
+    if (state.link.child) {
+        throw new Error('Zombie child');
+    }
+    else {
+        // console.log('pop');
+        state.profile.link.pop++;
+        state.link = state.link.pop();
         if (state.link === state.unwindLink) {
             state.unwindLink = null;
             return state;
         }
-
-        state.maxDepth = Math.max(state.maxDepth, state.link.depth);
-        const out = state.link.value.next(false);
-
-        if (out.value === false || out.value == null) {
-            if (state.link.child) {
-                throw new Error('Zombie child');
-            }
-            else {
-                // console.log('pop');
-                state.link = state.link.pop();
-                if (state.link === state.unwindLink) {
-                    state.unwindLink = null;
-                    return state;
-                }
-                while (state.link.child) {
-                    // console.log('down');
-                    state.link = state.link.down();
-                }
-            }
-        } else {
-            throw new Error(`yielding or returning false or null are accepted when unwinding: ${out.value}`);
+        while (state.link.child) {
+            // console.log('down');
+            state.profile.link.down++;
+            state.link = state.link.down();
         }
+    }
+}
+
+function stepUnwind(state: RunState) {
+    if (state.link === state.unwindLink) {
+        state.unwindLink = null;
         return state;
+    }
+
+    state.maxDepth = Math.max(state.maxDepth, state.link.depth);
+    const {value} = state.link.value.next(false);
+
+    if (value instanceof Promise) {
+        return value.then(laterValue => unwind(state, laterValue)).then(() => state);
+    } else if (value === false || value == null) {
+        unwind(state, value);
+    } else {
+        throw new Error(`yielding or returning false or null are accepted when unwinding: ${value}`);
+    }
+    return state;
+}
+
+function step(state: RunState): MaybeAsync<RunState> {
+    if (state.link.value === null) return state;
+
+    if (state.unwindLink) {
+        return stepUnwind(state);
     }
 
     state.maxDepth = Math.max(state.maxDepth, state.link.depth);
@@ -528,7 +584,7 @@ function step(state: RunState): MaybeAsync<RunState> {
 
 function loop(stack: RunState): MaybeAsync<RunState> {
     while (stack.link.value !== null) {
-        stack.loops++;
+        // stack.loops++;
         const nextStack = step(stack);
         if (nextStack instanceof Promise) return nextStack.then(loop);
         stack = nextStack;
@@ -536,18 +592,62 @@ function loop(stack: RunState): MaybeAsync<RunState> {
     return stack;
 }
 
+function loopUnwind(stack: RunState): MaybeAsync<RunState> {
+    while (stack.unwindLink !== null) {
+        stack.loops++;
+        const nextStack = stepUnwind(stack);
+        if (nextStack instanceof Promise) return nextStack.then(loopUnwind);
+        stack = nextStack;
+    };
+    return stack;
+}
+
 const formatTime = (d: Date) => `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${d.getMilliseconds().toString().padStart(3, '0')}`;
 
-export function ask(p: SyncPredicate): boolean;
-export function ask(p: Predicate): Promise<boolean>;
-export function ask(p: Predicate): boolean | Promise<boolean> {
+type Result<Teardown extends MaybeAsync<void>> = {
+    success: boolean;
+    teardown(): Teardown;
+};
+
+export function ask(p: SyncPredicate): Result<void>;
+export function ask(p: Predicate): Promise<Result<Promise<void>>>;
+export function ask(p: Predicate | (() => Predicate)): MaybeAsync<Result<MaybeAsync<void>>> {
+    if (typeof p === 'function') p = p();
     let link = Link.init(p);
     let direction = true;
     console.log(`start:\t${(formatTime)(new Date())}`);
-    return Pot.some({link, direction, loops: 0, start: Date.now(), maxDepth: 0})
+    const state = {
+        link,
+        direction,
+        unwindLink: null,
+
+        loops: 0,
+        start: Date.now(),
+        maxDepth: 0,
+        profile: {link: {down: 0, up: 0, push: 0, pop: 0}}
+    };
+    return Pot.some(state)
         .map(loop)
-        .map(state => (console.log(`end:\t${(formatTime)(new Date())}\nloops:\t${state.loops}\ndt:\t${Date.now() - state.start}\ndepth:\t${state.maxDepth}`), state))
+        .map(state => (console.log(`end:\t${(formatTime)(new Date())}\nloops:\t${state.loops}\ndt:\t${Date.now() - state.start}\ndepth:\t${state.maxDepth}\nprofile:\t${JSON.stringify(state.profile)}`), state))
         .map(({direction}) => direction, () => false)
+        .map(success => {
+            if (success) {
+                return {
+                    success,
+                    teardown() {
+                        state.unwindLink = state.link.root;
+                        while (state.link.child) state.link = state.link.down();
+                        return Pot.some(state)
+                            .map(loopUnwind)
+                            .map((state) => {console.log(state.loops)}).unwrap();
+                    },
+                };
+            }
+            return {
+                success,
+                teardown() {},
+            };
+        })
         .unwrap();
 }
 
@@ -749,49 +849,49 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
             const root = function* () {
                 yield true;
             };
-            t.true(ask(root()));
+            t.true(ask(root()).success);
         });
         s.test('run - depth 1, yield false', t => {
             const root = function* () {
                 yield false;
             };
-            t.false(ask(root()));
+            t.false(ask(root()).success);
         });
         s.test('run - depth 1, yield resolve true', async t => {
             function* root() {
                 yield Promise.resolve(true);
             }
-            t.true(await ask(root()));
+            t.true((await ask(root())).success);
         });
         s.test('run - depth 1, yield resolve false', async t => {
             function* root() {
                 yield Promise.resolve(false);
             }
-            t.false(await ask(root()));
+            t.false((await ask(root())).success);
         });
         s.test('run - depth 1, return true', t => {
             const root = function* () {
                 return true;
             };
-            t.true(ask(root()));
+            t.true(ask(root()).success);
         });
         s.test('run - depth 1, return false', t => {
             const root = function* () {
                 return false;
             };
-            t.false(ask(root()));
+            t.false(ask(root()).success);
         });
         s.test('run - depth 1, return resolve true', async t => {
             const root = function* () {
                 return Promise.resolve(true);
             };
-            t.true(await ask(root()));
+            t.true((await ask(root())).success);
         });
         s.test('run - depth 1, return resolve false', async t => {
             const root = function* () {
                 return Promise.resolve(false);
             };
-            t.false(await ask(root()));
+            t.false((await ask(root())).success);
         });
         s.test('run - depth 1, return generator yield true', t => {
             const root = function* () {
@@ -800,7 +900,7 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
             const root2 = function* () {
                 yield true;
             };
-            t.true(ask(root()));
+            t.true(ask(root()).success);
         });
         s.test('run - depth 1, return generator yield false', t => {
             const root = function* () {
@@ -809,7 +909,7 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
             const root2 = function* () {
                 yield false;
             };
-            t.false(ask(root()));
+            t.false(ask(root()).success);
         });
         s.test('run - depth 2, yield generator yield true', t => {
             const root = function* () {
@@ -818,7 +918,7 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
             const root2 = function* () {
                 yield true;
             };
-            t.true(ask(root()));
+            t.true(ask(root()).success);
         });
         s.test('run - depth 2, yield generator yield false', t => {
             const root = function* () {
@@ -827,7 +927,7 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
             const root2 = function* () {
                 yield false;
             };
-            t.false(ask(root()));
+            t.false(ask(root()).success);
         });
         s.test('run - depth 3, count to 0-index 10', t => {
             const count10 = function* (a: UnboundAddress<number>) {
@@ -845,7 +945,7 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
                 const lasting = last(a, count10(a));
                 while (yield lasting) yield bound(a) && a.value === 9;
             };
-            t.true(ask(root()));
+            t.true(ask(root()).success);
         });
         s.test('run - depth 2, sibling 2, 10 * 10', t => {
             const count10 = function* (a: UnboundAddress<number>) {
@@ -862,7 +962,7 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
                 while ((yield a) && (b = count10(bv))) while (yield b) ary.push([read(av), read(bv)]);
                 yield ary.length === 100;
             };
-            t.true(ask(root()));
+            t.true(ask(root()).success);
         });
     } finally {
         const r = new Runner(s);

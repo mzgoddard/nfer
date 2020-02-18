@@ -1,6 +1,6 @@
 // house(color, nation, pet, drink, movie genre)
 
-import {Ptr, bind, bound, unbound, value, ref, read, UnboundAddress, BoundAddress, bind2, bindUnbound, ask, addr, formatValue, formatAddress, SyncPredicate} from '.';
+import {Ptr, bind, bound, unbound, value, ref, read, UnboundAddress, BoundAddress, bind2, bindUnbound, ask, addr, formatValue, formatAddress, SyncPredicate, deref, Address, Predicate} from '.';
 
 enum Color {Red}
 enum Nation {Japan}
@@ -13,6 +13,21 @@ type List = [Ptr<House>, Ptr<House>, Ptr<House>, Ptr<House>, Ptr<House>];
 
 const house = function(a, b, c, d, e): List {
     return [a, b, c, d, e];
+};
+const color = function(v) {
+    return house(v, addr(), addr(), addr(), addr());
+};
+const nation = function(v) {
+    return house(addr(), v, addr(), addr(), addr());
+};
+const pet = function(v) {
+    return house(addr(), addr(), v, addr(), addr());
+};
+const drink = function(v) {
+    return house(addr(), addr(), addr(), v, addr());
+};
+const genre = function(v) {
+    return house(addr(), addr(), addr(), addr(), v);
 };
 const list = function(a, b, c, d, e): List {
     return [a, b, c, d, e];
@@ -67,40 +82,29 @@ const match = function* <T>(a: Ptr<T>, b: Ptr<T>): Generator<true | SyncPredicat
     }
 }
 
-const exists = function* (v, l: List) {
+const exists = function* (v, l: Ptr<List>) {
     const _a = addr();
     const _b = addr();
     const _c = addr();
     const _d = addr();
     let i = 0;
-    top:
-    while (true) {
-        if (i++) {
-            // console.log('reset', v);
-            if ((yield false) === false) continue top;
-        } else {
-            // console.log('first', v);
+    top: while (true) {
+        if (i++ && (yield false) === false) continue top;
+        for (const b = match(list(v, _a, _b, _c, _d), l); yield b;) {
+            if ((yield true) as boolean === false) continue top;
         }
-    {
-        const b = match(list(v, _a, _b, _c, _d), l);
-        while ((yield b)) {if ((yield true) as boolean === false) continue top;}
-    }
-    {
-        const b = match(list(_a, v, _b, _c, _d), l);
-        while ((yield b)) {if ((yield true) === false) continue top;}
-    }
-    {
-        const b = match(list(_a, _b, v, _c, _d), l);
-        while (yield b) {if ((yield true) === false) continue top;}
-    }
-    {
-        const b = match(list(_a, _b, _c, v, _d), l);
-        while (yield b) {if ((yield true) === false) continue top;}
-    }
-    {
-        const b = match(list(_a, _b, _c, _d, v), l);
-        while (yield b) {if ((yield true) === false) continue top;}
-    }
+        for (const b = match(list(_a, v, _b, _c, _d), l); yield b;) {
+            if ((yield true) as boolean === false) continue top;
+        }
+        for (const b = match(list(_a, _b, v, _c, _d), l); yield b;) {
+            if ((yield true) as boolean === false) continue top;
+        }
+        for (const b = match(list(_a, _b, _c, v, _d), l); yield b;) {
+            if ((yield true) as boolean === false) continue top;
+        }
+        for (const b = match(list(_a, _b, _c, _d, v), l); yield b;) {
+            if ((yield true) as boolean === false) continue top;
+        }
     }
 };
 
@@ -144,6 +148,8 @@ const first = function* (a, l) {
     while (yield r) {if ((yield true) === false) return;}
 };
 
+// const _ = addr;
+
 const puzzle = function* (houses) {
     let a, b, c, d, e, f, g, h, i, j, k, l, m, n;
     // while (yield call(exists, ))
@@ -155,46 +161,191 @@ const puzzle = function* (houses) {
     while ((yield a))
     while ((yield b))
     while ((yield c))
-    while ((yield d) && (e = rightOf(house('green', addr(), addr(), addr(), addr()), house('ivory', addr(), addr(), addr(), addr()), houses)))
-    while ((yield e) && (f = exists(house(addr(), addr(), 'snails', addr(), 'fantasy'), houses)))
-    while ((yield f))
-    while ((yield g) && (h = middle(house(addr(), addr(), addr(), 'milk', addr()), houses)))
-    while ((yield h) && (i = first(house(addr(), 'norweigh', addr(), addr(), addr()), houses)))
-    while ((yield i) && (j = nextTo(house(addr(), addr(), addr(), addr(), 'romance'), house(addr(), addr(), 'fox', addr(), addr()), houses)))
-    while ((yield j) && (k = nextTo(house(addr(), addr(), addr(), addr(), 'sci-fi'), house(addr(), addr(), 'horses', addr(), addr()), houses)))
+    while ((yield d))
+    for (const e = rightOf(color('green'), color('ivory'), houses); yield e;)
+    for (const f = exists(house(addr(), addr(), 'snails', addr(), 'fantasy'), houses); yield f;)
+    while ((yield g) && (h = middle(drink('milk'), houses)))
+    while ((yield h) && (i = first(nation('norweigh'), houses)))
+    while ((yield i) && (j = nextTo(genre('romance'), pet('fox',), houses)))
+    while ((yield j) && (k = nextTo(genre('sci-fi'), pet('horses'), houses)))
     while ((yield k) && (l = exists(house(addr(), addr(), addr(), 'orange-juice', 'comedy'), houses)))
     while ((yield l) && (m = exists(house(addr(), 'japan', addr(), addr(), 'action'), houses)))
-    while ((yield m) && (n = nextTo(house(addr(), 'norweigh', addr(), addr(), addr()), house('blue', addr(), addr(), addr(), addr()), houses)))
+    while ((yield m) && (n = nextTo(nation('norweigh'), color('blue'), houses)))
     while (yield n) if ((yield true) as boolean === false) return;
 };
 
 const zebra = function* (nation, houses) {
-    const f = exists(list(addr(), nation, 'zebra', addr(), addr()), houses);
-    while (yield f) if ((yield true) as boolean === false) return;
+    for (const f = exists(list(addr(), nation, 'zebra', addr(), addr()), houses); yield f;)
+    if ((yield true) as boolean === false) return;
 };
 
 const and = function* (f, g) {
-    const a = f();
-    let b;
-    while ((yield a) && (b = g()))
-    while (yield b) if ((yield true) as boolean === false) return;
+    for (const a = f(); yield a;)
+    for (const b = g(); yield b;)
+    if ((yield true) as boolean === false) return;
 };
 
-(async () => {
+const every = function* (f, ...p) {
+    const q = () => and(f, p.reduceRight((carry, value) => (() => and(value, carry))));
+    for (const a = q(); yield a;)
+    if ((yield true) as boolean === false) return;
+};
+
+const answers = function* () {
     const h = addr();
-    const zebraOwner = addr();
-    const waterDrinker = addr();
-    if (ask(and(
-        () => puzzle(h),
-        () => and(
-            () => exists(list(addr(), zebraOwner, 'zebra', addr(), addr()), h as any),
-            () => exists(list(addr(), waterDrinker, addr(), 'water', addr()), h as any)
-        )
-    ))) {
-        console.log(formatAddress(zebraOwner), formatAddress(waterDrinker));
-    } else {
-        console.log('no answer');
+    for (const p = puzzle(h); yield p;)
+    console.log(formatAddress(h));
+};
+
+// (async () => {
+//     ask(answers());
+// })();
+
+function* nth0(v, i, l) {
+    const l2 = deref(l);
+
+    if (bound(l2) || value(l2)) {
+        const lv = read(l2);
+
     }
+}
+
+// const answers = f([a`zebraOwner`, a`waterDrinker`], [every,
+//     [puzzle, a`h`],
+//     [exists, list(_, a`zebraOwner`, 'zebra', _, _), a`h`],
+//     [exists, list(_, a`waterDrinker`, _, 'water', _), a`h`],
+// ])
+// const answers = f([a`zebraOwner`, a`waterDrinker`], [
+//     [puzzle, a`h`],
+//     [exists, list(_, a`zebraOwner`, 'zebra', _, _), a`h`],
+//     [exists, list(_, a`waterDrinker`, _, 'water', _), a`h`],
+// ])
+
+// const exists = fs()
+// .add(f([a`v`, list(a`v`, _, _, _, _)]))
+// .add(f`v, l`(match, (v, l) => list(v, _, _, _, _), l))
+// .add(f`v, l`(match, (v, l) => list(_, v, _, _, _), l))
+// .add(f`v, l`(match, (v, l) => list(_, _, v, _, _), l))
+// .add(f`v, l`(match, (v, l) => list(_, _, _, v, _), l))
+// .add(f`v, l`(match, (v, l) => list(_, _, _, _, v), l));
+
+class AddressName {
+    name: string;
+    constructor(name: string) {
+        this.name = name;
+    }
+}
+
+function n([name]: TemplateStringsArray) {
+    return new AddressName(name);
+}
+
+function clone(fact) {
+    if (fact instanceof AddressName) {
+        if (!fact.name) return addr();
+        if (this[fact.name]) return this[fact.name];
+        return this[fact.name] = addr();
+    } else if (fact instanceof Address) {
+        return fact;
+    } else if (typeof fact === 'object') {
+        if (Array.isArray(fact)) {
+            const copy = fact.map(clone, this);
+            if (typeof fact[0] === 'function' && fact.length <= 2) {
+                return () => copy[0](...(copy[1] || []));
+            } else if (copy.every(c => typeof c === 'function')) {
+                const slice = copy.slice(1);
+                return () => every(copy[0], ...slice);
+            }
+            return copy;
+        } else {
+            const o = {};
+            for (const key in fact) {
+                o[key] = clone.call(this, fact[key]);
+            }
+            return o;
+        }
+    } else {
+        return fact;
+    }
+}
+
+function* call(fact, args) {
+    const scope = {};
+    const head = clone.call(scope, fact[0]);
+    for (const mh = match(head, args); yield mh;)
+    if (fact.length === 1) if ((yield true) === false) return;
+    else
+    for (const b = (clone.call(scope, fact[1]))(); yield b;)
+    if ((yield true) === false) return;
+}
+
+function fs(...initialFacts) {
+    let s = initialFacts.slice();
+    function* facts(...args) {
+        const t = s;
+        for (let i = 0; i < t.length; i++) {
+            const b = call(t[i], args);
+            while (yield b) if ((yield true) === false) return;
+        }
+    }
+    facts.add = fact => {
+        s = [...s, fact];
+        return this;
+    };
+    facts.removeAll = () => {
+        s = [];
+        return this;
+    };
+    return facts;
+}
+
+const _ = n``;
+
+const exist = fs(
+    [[n`v`, [n`v`, _, _, _, _]]],
+    [[n`v`, [_, n`v`, _, _, _]]],
+    [[n`v`, [_, _, n`v`, _, _]]],
+    [[n`v`, [_, _, _, n`v`, _]]],
+    [[n`v`, [_, _, _, _, n`v`]]],
+);
+
+(async () => {
+    const h = addr<List>();
+    const zebraOwner = addr<string>();
+    const waterDrinker = addr();
+    // const result = ask(every(
+    //     // () => puzzle(h),
+    //     clone([puzzle, [h]]),
+    //     // () => exist(list(addr(), zebraOwner, 'zebra', addr(), addr()), h),
+    //     clone([exist, [[_, zebraOwner, 'zebra', _, _], h]]),
+    //     // () => exists(list(addr(), waterDrinker, addr(), 'water', addr()), h),
+    //     clone([exist, [[_, waterDrinker, _, 'water', _], h]]),
+    // ));
+    // console.log(clone(
+    //     [puzzle, [h]],
+    // ));
+    // return;
+    const result = ask(clone([
+        [puzzle, [h]],
+        [exist, [[_, zebraOwner, 'zebra', _, _], h]],
+        [exist, [[_, waterDrinker, _, 'water', _], h]],
+    ]));
+    if (result.success) {
+        console.log(formatAddress(zebraOwner), formatAddress(waterDrinker));
+        result.teardown();
+    }
+    console.log(formatAddress(zebraOwner), formatAddress(waterDrinker));
+    // if (ask(and(
+    //     () => puzzle(h),
+    //     () => and(
+    //         () => exists(list(addr(), zebraOwner, 'zebra', addr(), addr()), h as any),
+    //         () => exists(list(addr(), waterDrinker, addr(), 'water', addr()), h as any)
+    //     )
+    // ))) {
+    //     console.log(formatAddress(zebraOwner), formatAddress(waterDrinker));
+    // } else {
+    //     console.log('no answer');
+    // }
 })();
 
 // (() => {
