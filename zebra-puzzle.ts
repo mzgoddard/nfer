@@ -252,7 +252,7 @@ function clone(fact) {
             const copy = fact.map(clone, this);
             if (typeof fact[0] === 'function' && fact.length <= 2) {
                 return () => copy[0](...(copy[1] || []));
-            } else if (copy.every(c => typeof c === 'function')) {
+            } else if (copy.length > 1 && copy.every(c => typeof c === 'function')) {
                 const slice = copy.slice(1);
                 return () => every(copy[0], ...slice);
             }
@@ -272,26 +272,38 @@ function clone(fact) {
 function* call(fact, args) {
     const scope = {};
     const head = clone.call(scope, fact[0]);
-    for (const mh = match(head, args); yield mh;)
-    if (fact.length === 1) if ((yield true) === false) return;
-    else
-    for (const b = (clone.call(scope, fact[1]))(); yield b;)
-    if ((yield true) === false) return;
+    for (const mh = match(head, args); yield mh;) {
+        if (fact.length === 1) {
+            if ((yield true) === false) return;
+        }
+        else {
+            for (const b = (clone.call(scope, fact[1]))(); yield b;)
+            if ((yield true) === false) return;
+        }
+    }
 }
 
 function fs(...initialFacts) {
     let s = initialFacts.slice();
     function* facts(...args) {
         const t = s;
-        for (let i = 0; i < t.length; i++) {
-            const b = call(t[i], args);
-            while (yield b) if ((yield true) === false) return;
-        }
+        for (let i = 0; i < t.length; i++)
+        for (const b = call(t[i], args); yield b;)
+        if ((yield true) === false) return;
     }
     facts.add = fact => {
         s = [...s, fact];
         return this;
     };
+    // facts.remove = args => {
+    //     const a = addr();
+    //     const list = addr();
+    //     list.set(List.empty);
+    //     const result = ask(findall(a, every(() => member(a, s), () => match(a, args)), list));
+    //     if (result.success) {
+    //         result.teardown();
+    //     }
+    // };
     facts.removeAll = () => {
         s = [];
         return this;
@@ -307,6 +319,14 @@ const exist = fs(
     [[n`v`, [_, _, n`v`, _, _]]],
     [[n`v`, [_, _, _, n`v`, _]]],
     [[n`v`, [_, _, _, _, n`v`]]],
+);
+
+const question = fs(
+    [[n`zebraOwner`, n`waterDrinker`], [
+        [puzzle, [n`h`]],
+        [exist, [[_, n`zebraOwner`, 'zebra', _, _], n`h`]],
+        [exist, [[_, n`waterDrinker`, _, 'water', _], n`h`]],
+    ]],
 );
 
 (async () => {
@@ -325,11 +345,12 @@ const exist = fs(
     //     [puzzle, [h]],
     // ));
     // return;
-    const result = ask(clone([
-        [puzzle, [h]],
-        [exist, [[_, zebraOwner, 'zebra', _, _], h]],
-        [exist, [[_, waterDrinker, _, 'water', _], h]],
-    ]));
+    // const result = ask(clone([
+    //     [puzzle, [h]],
+    //     [exist, [[_, zebraOwner, 'zebra', _, _], h]],
+    //     [exist, [[_, waterDrinker, _, 'water', _], h]],
+    // ]));
+    const result = ask(question(zebraOwner, waterDrinker));
     if (result.success) {
         console.log(formatAddress(zebraOwner), formatAddress(waterDrinker));
         result.teardown();

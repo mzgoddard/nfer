@@ -55,6 +55,132 @@ export class Address<T> implements UnboundAddress<T>, BoundAddress<T>, Reference
     }
 }
 
+export abstract class List<T> {
+    abstract value: T;
+    abstract tail: List<T> = List.empty;
+
+    get length() {
+        return 1 + this.tail.length;
+    }
+
+    static get empty() {
+        return ListTerminal.terminal;
+    }
+
+    at(index: number): T {
+        if (index === 0) return this.value;
+        return this.tail.at(index - 1);
+    }
+
+    _splice(index: number, remove: number, insertions: T[], insertIndex: number): List<T> {
+        if (index === 0) {
+            if (remove === 0) {
+                if (insertIndex === -1) {
+                    return this;
+                } else {
+                    return new ListLink(insertions[insertIndex], this)._splice(index, remove, insertions, insertIndex - 1);
+                }
+            } else {
+                return this.tail._splice(index, remove - 1, insertions, insertIndex);
+            }
+        } else {
+            return new ListLink(this.value, this.tail._splice(index - 1, remove, insertions, insertIndex));
+        }
+    }
+
+    splice(index: number, remove: number, ...insertions: T[]): List<T> {
+        return this._splice(index, remove, insertions, insertions.length - 1);
+    }
+
+    prepend(value: T): List<T> {
+        return new ListLink(value, this);
+    }
+
+    append(value: T): List<T> {
+        return new ListLink(this.value, this.tail.append(value));
+    }
+
+    shift(): [T, List<T>] {
+        return [this.value, this.tail];
+    }
+
+    pop(): [T, List<T>] {
+        if (this.tail instanceof ListTerminal) {
+            return [this.value, this.tail];
+        }
+        const [value, tail] = this.tail.pop();
+        return [value, new ListLink(this.value, tail)];
+    }
+
+    _map<M, C = this>(fn: (this: C, value: T, index: number, list: List<T>) => M, ctx: C, i: number, top: List<T>): List<M> {
+        return List.empty;
+    }
+
+    map<M, C = this>(fn: (this: C, value: T, index: number, list: List<T>) => M, ctx: C): List<M> {
+        return this._map(fn, ctx || this, 0, this);
+    }
+
+    _toArray(ary: T[]) {
+        ary.push(this.value);
+        this.tail._toArray(ary);
+    }
+
+    toArray(): T[] {
+        const ary: T[] = [];
+        this._toArray(ary);
+        return ary;
+    }
+
+    static from<T>(arrayLike: {length: number} & {[key: number]: T}): List<T> {
+        let head: List<T> = List.empty;
+        for (let i = arrayLike.length - 1; i >= 0; i--) {
+            head.prepend(arrayLike[i]);
+        }
+        return head;
+    }
+}
+
+class ListTerminal<T> extends List<T> {
+    value: any = null;
+    tail: List<any> = List.empty;
+
+    get length() {
+        return 0;
+    }
+
+    static terminal: ListTerminal<any> = new ListTerminal();
+
+    at(index: number) {
+        return null;
+    }
+
+    _splice(index: number, remove: number, insertions: T[], insertIndex: number) {
+        if (insertIndex === -1) return this;
+        return new ListLink(insertions[insertIndex], this)._splice(index, remove, insertions, insertIndex - 1);
+    }
+
+    append(value: T): List<T> {
+        return new ListLink(value, this);
+    }
+
+    _toArray() {}
+}
+
+class ListLink<T = any> extends List<T> {
+    value: T;
+    tail: List<T> = List.empty;
+
+    constructor(value: T, tail: List<T> = null) {
+        super();
+        this.value = value;
+        if (tail) this.tail = tail;
+    }
+
+    _map<M, C = this>(fn: (this: C, value: T, index: number, list: List<T>) => M, ctx: C, i: number, top: List<T>): List<M> {
+        return new ListLink(fn.call(ctx, this.value, i, top), this.tail._map(fn, ctx, i, top));
+    }
+}
+
 // class BoundAddress<T> extends Address<T> {
 
 // }
