@@ -55,16 +55,28 @@ export class Address<T> implements UnboundAddress<T>, BoundAddress<T>, Reference
     }
 }
 
-export abstract class List<T> {
-    abstract value: T;
-    abstract tail: List<T> = List.empty;
+export abstract class Cons<T> implements Iterable<T> {
+    value: T;
+    tail: Cons<T>;
+
+    constructor(value: T, tail: Cons<T> = Cons.empty) {
+        this.value = value;
+        if (tail) this.tail = tail;
+    }
 
     get length() {
         return 1 + this.tail.length;
     }
 
     static get empty() {
-        return ListTerminal.terminal;
+        return ConsTerminal.terminal;
+    }
+
+    *[Symbol.iterator]() {
+        let p = this;
+        while (!(p instanceof ConsTerminal)) {
+            yield p.value;
+        }
     }
 
     at(index: number): T {
@@ -72,51 +84,66 @@ export abstract class List<T> {
         return this.tail.at(index - 1);
     }
 
-    _splice(index: number, remove: number, insertions: T[], insertIndex: number): List<T> {
+    _splice(index: number, remove: number, insertions: T[], insertIndex: number): [T[], Cons<T>] {
         if (index === 0) {
             if (remove === 0) {
                 if (insertIndex === -1) {
-                    return this;
+                    return [[], this];
                 } else {
-                    return new ListLink(insertions[insertIndex], this)._splice(index, remove, insertions, insertIndex - 1);
+                    return new ConsValue(insertions[insertIndex], this)._splice(index, remove, insertions, insertIndex - 1);
                 }
             } else {
-                return this.tail._splice(index, remove - 1, insertions, insertIndex);
+                const [removed, tail] = this.tail._splice(index, remove - 1, insertions, insertIndex);
+                return [[...removed, this.value], tail];
             }
         } else {
-            return new ListLink(this.value, this.tail._splice(index - 1, remove, insertions, insertIndex));
+            const [removed, tail] = this.tail._splice(index - 1, remove, insertions, insertIndex);
+            return [removed, new ConsValue(this.value, tail)];
         }
     }
 
-    splice(index: number, remove: number, ...insertions: T[]): List<T> {
+    splice(index: number, remove: number, ...insertions: T[]): [T[], Cons<T>] {
         return this._splice(index, remove, insertions, insertions.length - 1);
     }
 
-    prepend(value: T): List<T> {
-        return new ListLink(value, this);
+    prepend(value: T): Cons<T> {
+        return new ConsValue(value, this);
     }
 
-    append(value: T): List<T> {
-        return new ListLink(this.value, this.tail.append(value));
+    append(value: T): Cons<T> {
+        return new ConsValue(this.value, this.tail.append(value));
     }
 
-    shift(): [T, List<T>] {
+    shift(): [T, Cons<T>] {
         return [this.value, this.tail];
     }
 
-    pop(): [T, List<T>] {
-        if (this.tail instanceof ListTerminal) {
+    pop(): [T, Cons<T>] {
+        if (this.tail instanceof ConsTerminal) {
             return [this.value, this.tail];
         }
         const [value, tail] = this.tail.pop();
-        return [value, new ListLink(this.value, tail)];
+        return [value, new ConsValue(this.value, tail)];
     }
 
-    _map<M, C = this>(fn: (this: C, value: T, index: number, list: List<T>) => M, ctx: C, i: number, top: List<T>): List<M> {
-        return List.empty;
+    _find<M extends T>(fn: (value: T, index: number, list: Cons<T>) => value is M, index: number, top: Cons<T>): M {
+        if (fn(this.value, index, top)) {
+            return this.value;
+        }
+        return this.tail._find(fn, index + 1, top);
     }
 
-    map<M, C = this>(fn: (this: C, value: T, index: number, list: List<T>) => M, ctx: C): List<M> {
+    find<M extends T>(fn: (value: T, index: number, list: Cons<T>) => value is M): M;
+    find(fn: (value: T, index: number, list: Cons<T>) => boolean): T;
+    find<M extends T>(fn: (value: T, index: number, list: Cons<T>) => value is M): M {
+        return this._find(fn, 0, this);
+    }
+
+    _map<M, C = this>(fn: (this: C, value: T, index: number, list: Cons<T>) => M, ctx: C, i: number, top: Cons<T>): Cons<M> {
+        return new ConsValue(fn.call(ctx, this.value, i, top), this.tail._map(fn, ctx, i, top));
+    }
+
+    map<M, C = this>(fn: (this: C, value: T, index: number, list: Cons<T>) => M, ctx: C): Cons<M> {
         return this._map(fn, ctx || this, 0, this);
     }
 
@@ -131,8 +158,16 @@ export abstract class List<T> {
         return ary;
     }
 
-    static from<T>(arrayLike: {length: number} & {[key: number]: T}): List<T> {
-        let head: List<T> = List.empty;
+    toString(): string {
+        return this.toArray().toString();
+    }
+
+    toJSON() {
+        return this.toArray();
+    }
+
+    static from<T>(arrayLike: {length: number} & {[key: number]: T}): Cons<T> {
+        let head: Cons<T> = Cons.empty;
         for (let i = arrayLike.length - 1; i >= 0; i--) {
             head.prepend(arrayLike[i]);
         }
@@ -140,15 +175,16 @@ export abstract class List<T> {
     }
 }
 
-class ListTerminal<T> extends List<T> {
-    value: any = null;
-    tail: List<any> = List.empty;
+class ConsTerminal<T> extends Cons<T> {
+    constructor() {
+        super(null, null);
+    }
 
     get length() {
         return 0;
     }
 
-    static terminal: ListTerminal<any> = new ListTerminal();
+    static terminal: ConsTerminal<any> = new ConsTerminal();
 
     at(index: number) {
         return null;
@@ -156,30 +192,25 @@ class ListTerminal<T> extends List<T> {
 
     _splice(index: number, remove: number, insertions: T[], insertIndex: number) {
         if (insertIndex === -1) return this;
-        return new ListLink(insertions[insertIndex], this)._splice(index, remove, insertions, insertIndex - 1);
+        return new ConsValue(insertions[insertIndex], this)._splice(index, remove, insertions, insertIndex - 1);
     }
 
-    append(value: T): List<T> {
-        return new ListLink(value, this);
+    append(value: T): Cons<T> {
+        return new ConsValue(value, this);
+    }
+
+    _find() {
+        return null;
+    }
+
+    _map() {
+        return ConsTerminal.terminal;
     }
 
     _toArray() {}
 }
 
-class ListLink<T = any> extends List<T> {
-    value: T;
-    tail: List<T> = List.empty;
-
-    constructor(value: T, tail: List<T> = null) {
-        super();
-        this.value = value;
-        if (tail) this.tail = tail;
-    }
-
-    _map<M, C = this>(fn: (this: C, value: T, index: number, list: List<T>) => M, ctx: C, i: number, top: List<T>): List<M> {
-        return new ListLink(fn.call(ctx, this.value, i, top), this.tail._map(fn, ctx, i, top));
-    }
-}
+class ConsValue<T = any> extends Cons<T> {}
 
 // class BoundAddress<T> extends Address<T> {
 

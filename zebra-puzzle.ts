@@ -1,6 +1,6 @@
 // house(color, nation, pet, drink, movie genre)
 
-import {Ptr, bind, bound, unbound, value, ref, read, UnboundAddress, BoundAddress, bind2, bindUnbound, ask, addr, formatValue, formatAddress, SyncPredicate, deref, Address, Predicate} from '.';
+import {Ptr, bind, bound, unbound, value, ref, read, UnboundAddress, BoundAddress, bind2, bindUnbound, ask, addr, formatValue, formatAddress, SyncPredicate, deref, Address, Predicate, Cons} from '.';
 
 enum Color {Red}
 enum Nation {Japan}
@@ -283,6 +283,29 @@ function* call(fact, args) {
     }
 }
 
+function* member<T>(item: Ptr<T>, list: Ptr<Cons<T> | T[]>) {
+    const item2 = deref(item);
+    const list2 = deref(list);
+
+    if (unbound(list2)) {
+        return;
+    }
+
+    const listv = read(list2);
+    let listc: Cons<T>;
+    if (Array.isArray(listv)) listc = Cons.from(listv);
+    else listc = listv;
+
+    if (unbound(item2)) {
+        for (const value of listc)
+        for (const b = bindUnbound(item2, value); yield b;)
+        if ((yield true) as boolean === false) return;
+    } else {
+        const itemv = read(item2);
+        yield Boolean(listc.find(value => value === itemv));
+    }
+}
+
 function fs(...initialFacts) {
     let s = initialFacts.slice();
     function* facts(...args) {
@@ -297,9 +320,23 @@ function fs(...initialFacts) {
     };
     // facts.remove = args => {
     //     const a = addr();
+    //     const b = addr();
     //     const list = addr();
-    //     list.set(List.empty);
-    //     const result = ask(findall(a, every(() => member(a, s), () => match(a, args)), list));
+    //     list.set(Cons.empty);
+    //     // const resul = ask(clone([
+    //     //     [findall, a, [
+    //     //         [member, a, s],
+    //     //         [nth0, b, 0, a],
+    //     //         [match, b, args],
+    //     //     ], list],
+    //     // ]));
+    //     const result = ask(
+    //         findall(a, () => every(
+    //             () => member(a, s),
+    //             () => nth0(b, 0, a),
+    //             () => match(b, args),
+    //         ), list)
+    //     );
     //     if (result.success) {
     //         result.teardown();
     //     }
@@ -313,21 +350,43 @@ function fs(...initialFacts) {
 
 const _ = n``;
 
+const v = n`v`;
+
 const exist = fs(
-    [[n`v`, [n`v`, _, _, _, _]]],
-    [[n`v`, [_, n`v`, _, _, _]]],
-    [[n`v`, [_, _, n`v`, _, _]]],
-    [[n`v`, [_, _, _, n`v`, _]]],
-    [[n`v`, [_, _, _, _, n`v`]]],
+    [[v, [v, _, _, _, _]]],
+    [[v, [_, v, _, _, _]]],
+    [[v, [_, _, v, _, _]]],
+    [[v, [_, _, _, v, _]]],
+    [[v, [_, _, _, _, v]]],
 );
 
+const [h, zebraOwner, waterDrinker] = [n`h`, n`zebraOwner`, n`waterDrinker`];
+
 const question = fs(
-    [[n`zebraOwner`, n`waterDrinker`], [
-        [puzzle, [n`h`]],
-        [exist, [[_, n`zebraOwner`, 'zebra', _, _], n`h`]],
-        [exist, [[_, n`waterDrinker`, _, 'water', _], n`h`]],
+    [[zebraOwner, waterDrinker], [
+        [puzzle, [h]],
+        [exist, [[_, zebraOwner, 'zebra', _, _], h]],
+        [exist, [[_, waterDrinker, _, 'water', _], h]],
     ]],
 );
+
+const [minHigh, minLow, xt] = [n`minHigh`, n`minLow`, n`xt`];
+
+const time = fs(
+    [["time", [1, minHigh, minLow], [1, 3, minHigh, minLow]]],
+    [["time", xt, xt]],
+);
+
+const tapTime = tapSequence => {
+    const tapReplaced = addr();
+    const result = ask(time("time", tapSequence, tapReplaced));
+    if (result.success) {
+        const answer = formatAddress(tapReplaced);
+        result.teardown();
+        return answer;
+    }
+    throw new Error();
+};
 
 (async () => {
     const h = addr<List>();
@@ -352,7 +411,7 @@ const question = fs(
     // ]));
     const result = ask(question(zebraOwner, waterDrinker));
     if (result.success) {
-        console.log(formatAddress(zebraOwner), formatAddress(waterDrinker));
+        console.log(...formatAddress([zebraOwner, waterDrinker]));
         result.teardown();
     }
     console.log(formatAddress(zebraOwner), formatAddress(waterDrinker));
