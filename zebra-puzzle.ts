@@ -1,6 +1,6 @@
 // house(color, nation, pet, drink, movie genre)
 
-import {Ptr, bind, bound, unbound, value, ref, read, UnboundAddress, BoundAddress, bind2, bindUnbound, ask, addr, formatValue, formatAddress, SyncPredicate, deref, Address, Predicate, Cons} from '.';
+import {Ptr, bind, bound, unbound, value, ref, read, UnboundAddress, BoundAddress, bind2, bindUnbound, ask, addr, formatValue, formatAddress, SyncPredicate, deref, Address, Predicate, Cons, demand} from '.';
 
 enum Color {Red}
 enum Nation {Japan}
@@ -201,12 +201,38 @@ const answers = function* () {
 //     ask(answers());
 // })();
 
-function* nth0(v, i, l) {
+function* nth0<T>(v: T | UnboundAddress<T> | BoundAddress<T>, i: Ptr<number>, l: Ptr<Cons<T> | T[]>) {
     const l2 = deref(l);
 
     if (bound(l2) || value(l2)) {
         const lv = read(l2);
 
+        const i2 = deref(i);
+        if (unbound(v)) {
+            if (unbound(i2)) {
+                let j = 0;
+                for (const value of lv)
+                for (const b = bindUnbound(v, value); yield b;)
+                for (const c = bindUnbound(i2, j++); yield c;)
+                if ((yield true) as boolean === false) return;
+            } else {
+                const iv = read(i2);
+                if (iv < lv.length)
+                for (const b = bindUnbound(v, Array.isArray(lv) ? lv[iv] : lv.at(iv)); yield b;)
+                if ((yield true) as boolean === false) return;
+            }
+        } else if (unbound(i2)) {
+            const vv = read(v);
+            let j = -1;
+            for (const value of lv)
+            if (vv === (Array.isArray(lv) ? lv[++j] : lv.at(++j)))
+            for (const b = bindUnbound(i2, j); yield b;)
+            if ((yield true) as boolean === false) return;
+        } else {
+            const iv = read(i2);
+            if (iv < lv.length && read(v) === (Array.isArray(lv) ? lv[iv] : lv.at(iv)))
+            if ((yield true) as boolean === false) return;
+        }
     }
 }
 
@@ -283,6 +309,16 @@ function* call(fact, args) {
     }
 }
 
+function* findall(p: UnboundAddress<any>, q: () => SyncPredicate | Predicate, l: UnboundAddress<Cons<any>>) {
+    let _l = Cons.empty;
+
+    for (const b = q(); yield b;)
+    if (bound(deref(p))) _l = _l.prepend(formatAddress(deref(p)));
+
+    for (const b = bindUnbound(l, _l); yield b;)
+    if ((yield true) as boolean === false) return;
+}
+
 function* member<T>(item: Ptr<T>, list: Ptr<Cons<T> | T[]>) {
     const item2 = deref(item);
     const list2 = deref(list);
@@ -324,11 +360,11 @@ function fs(...initialFacts) {
     //     const list = addr();
     //     list.set(Cons.empty);
     //     // const resul = ask(clone([
-    //     //     [findall, a, [
-    //     //         [member, a, s],
-    //     //         [nth0, b, 0, a],
-    //     //         [match, b, args],
-    //     //     ], list],
+    //     //     [findall, [a, [
+    //     //         [member, [a, s]],
+    //     //         [nth0, [b, 0, a]],
+    //     //         [match, [b, args]],
+    //     //     ], list]],
     //     // ]));
     //     const result = ask(
     //         findall(a, () => every(
@@ -377,15 +413,9 @@ const time = fs(
     [["time", xt, xt]],
 );
 
-const tapTime = tapSequence => {
-    const tapReplaced = addr();
-    const result = ask(time("time", tapSequence, tapReplaced));
-    if (result.success) {
-        const answer = formatAddress(tapReplaced);
-        result.teardown();
-        return answer;
-    }
-    throw new Error();
+const tapTime = (tapSequence: number[]) => {
+    const tapReplaced = addr<number[]>();
+    return demand({tapReplaced}, time("time", tapSequence, tapReplaced) as SyncPredicate).tapReplaced;
 };
 
 (async () => {
@@ -409,6 +439,7 @@ const tapTime = tapSequence => {
     //     [exist, [[_, zebraOwner, 'zebra', _, _], h]],
     //     [exist, [[_, waterDrinker, _, 'water', _], h]],
     // ]));
+    console.log(demand([zebraOwner, waterDrinker], question(zebraOwner, waterDrinker) as SyncPredicate));
     const result = ask(question(zebraOwner, waterDrinker));
     if (result.success) {
         console.log(...formatAddress([zebraOwner, waterDrinker]));

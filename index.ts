@@ -68,7 +68,7 @@ export abstract class Cons<T> implements Iterable<T> {
         return 1 + this.tail.length;
     }
 
-    static get empty() {
+    static get empty(): Cons<any> {
         return ConsTerminal.terminal;
     }
 
@@ -337,23 +337,23 @@ export function write<T>(p: Ptr<T>, v: T): BoundAddress<T> {
     throw new Error('Cannot write value or bound address');
 }
 
-export function formatValue(p) {
-    if (typeof p === 'object' && p) {
+export function formatValue<T>(p: T): Value<T> {
+    if (Object(p) === p) {
         if (Array.isArray(p)) {
-            return p.map(formatAddress);
+            return p.map(formatAddress) as any;
         } else {
-            const o = {};
+            const o: any = {};
             for (const key in p) {
                 o[key] = formatAddress(p[key]);
             }
             return o;
         }
     } else {
-        return p;
+        return p as any;
     }
 }
 
-export function formatAddress<T>(p: Ptr<T>): T {
+export function formatAddress<T>(p: Ptr<T>): Value<T> {
     if (value(p)) {
         return formatValue(p);
     } else if (bound(p)) {
@@ -766,8 +766,8 @@ type Result<Teardown extends MaybeAsync<void>> = {
     teardown(): Teardown;
 };
 
-export function ask(p: SyncPredicate): Result<void>;
-export function ask(p: Predicate): Promise<Result<Promise<void>>>;
+export function ask(p: SyncPredicate | (() => SyncPredicate)): Result<void>;
+export function ask(p: Predicate | (() => Predicate)): Promise<Result<Promise<void>>>;
 export function ask(p: Predicate | (() => Predicate)): MaybeAsync<Result<MaybeAsync<void>>> {
     if (typeof p === 'function') p = p();
     let link = Link.init(p);
@@ -804,6 +804,42 @@ export function ask(p: Predicate | (() => Predicate)): MaybeAsync<Result<MaybeAs
                 success,
                 teardown() {},
             };
+        })
+        .unwrap();
+}
+
+type Value<T> =
+    T extends Ptr<infer P> ?
+        P extends any[] | {[key: string]: any} ?
+            {[key in keyof P]: Value<P[key]>} :
+        P :
+        T extends any[] | {[key: string]: any} ?
+            {[key in keyof T]: Value<T[key]>} :
+        T;
+
+export function demand<Answers extends Ptr[] | {[key: string]: Ptr}>(answers: Answers, question: SyncPredicate | (() => SyncPredicate)): Value<Answers>;
+export function demand<Answers extends Ptr[] | {[key: string]: Ptr}>(answers: Answers, question: Predicate | (() => Predicate)): Promise<Value<Answers>>;
+export function demand<Answers extends Ptr[] | {[key: string]: Ptr}>(answers: Answers, question: SyncPredicate | Predicate | (() => SyncPredicate | Predicate)): MaybeAsync<Value<Answers>> {
+    return Pot.some(ask(question))
+        .map(result => {
+            if (result.success) {
+                const answered = formatAddress(answers);
+                for (const key in answered) {
+                    if (!value(answered[key])) {
+                        return Pot.some(result.teardown())
+                            .map(() => {
+                                throw new Error(`Could not answer ${key} for ${question}`);
+                            }, () => {
+                                throw new Error(`Could not answer ${key} for ${question}`);
+                            })
+                            .unwrap();
+                    }
+                }
+                return Pot.some(result.teardown())
+                    .map(() => answered, () => answered)
+                    .unwrap();
+            }
+            throw new Error(`Could not answer ${question}`);
         })
         .unwrap();
 }
