@@ -810,9 +810,17 @@ export function ask(p: Predicate | (() => Predicate)): MaybeAsync<Result<MaybeAs
 
 type Value<T> =
     T extends Ptr<infer P> ?
+        P extends Cons<infer C> ?
+            Cons<C extends any[] | {[key: string]: any} ?
+                {[key in keyof C]: Value<C[key]>} :
+            C> :
         P extends any[] | {[key: string]: any} ?
             {[key in keyof P]: Value<P[key]>} :
         P :
+        T extends Cons<infer C> ?
+            Cons<C extends any[] | {[key: string]: any} ?
+                {[key in keyof C]: Value<C[key]>} :
+            C> :
         T extends any[] | {[key: string]: any} ?
             {[key in keyof T]: Value<T[key]>} :
         T;

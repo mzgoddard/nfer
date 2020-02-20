@@ -313,7 +313,7 @@ function* findall(p: UnboundAddress<any>, q: () => SyncPredicate | Predicate, l:
     let _l = Cons.empty;
 
     for (const b = q(); yield b;)
-    if (bound(deref(p))) _l = _l.prepend(formatAddress(deref(p)));
+    if (bound(deref(p))) _l = _l.prepend(formatAddress(p));
 
     for (const b = bindUnbound(l, _l); yield b;)
     if ((yield true) as boolean === false) return;
@@ -354,29 +354,23 @@ function fs(...initialFacts) {
         s = [...s, fact];
         return this;
     };
-    // facts.remove = args => {
-    //     const a = addr();
-    //     const b = addr();
-    //     const list = addr();
-    //     list.set(Cons.empty);
-    //     // const resul = ask(clone([
-    //     //     [findall, [a, [
-    //     //         [member, [a, s]],
-    //     //         [nth0, [b, 0, a]],
-    //     //         [match, [b, args]],
-    //     //     ], list]],
-    //     // ]));
-    //     const result = ask(
-    //         findall(a, () => every(
-    //             () => member(a, s),
-    //             () => nth0(b, 0, a),
-    //             () => match(b, args),
-    //         ), list)
-    //     );
-    //     if (result.success) {
-    //         result.teardown();
-    //     }
-    // };
+    facts.remove = args => {
+        const a = addr();
+        const b = addr();
+        const i = addr();
+        const list = addr<Cons<number>>();
+        const answer = demand({list}, clone([
+            [findall, [i, [
+                [nth0, [a, i, s]],
+                [nth0, [b, 0, a]],
+                [match, [b, args]],
+            ], list]],
+        ]));
+        s = s.slice();
+        for (const index of answer.list.toArray().reverse()) {
+            s.splice(index, 1);
+        }
+    };
     facts.removeAll = () => {
         s = [];
         return this;
