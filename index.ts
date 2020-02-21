@@ -453,7 +453,7 @@ class Link<T> {
         return this.parent;
     }
 
-    push(value: T) {
+    push(value: T): Link<T> {
         // if (!(value as unknown as {__id}).__id) (value as unknown as {__id}).__id = nextId++;
         // console.log('push', JSON.stringify(this.child && this.child.inPlaceOf), JSON.stringify(value));
         return (this.child = new Link(value, this, this.child));
@@ -761,8 +761,11 @@ function loopUnwind(stack: RunState): MaybeAsync<RunState> {
 
 const formatTime = (d: Date) => `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${d.getMilliseconds().toString().padStart(3, '0')}`;
 
+type SameSync<Async extends MaybeAsync<any>, Value> = Async extends Promise<any> ? Promise<Value> : Value;
+
 type Result<Teardown extends MaybeAsync<void>> = {
     success: boolean;
+    next(): SameSync<Teardown, Result<Teardown>>;
     teardown(): Teardown;
 };
 
@@ -770,12 +773,11 @@ export function ask(p: SyncPredicate | (() => SyncPredicate)): Result<void>;
 export function ask(p: Predicate | (() => Predicate)): Promise<Result<Promise<void>>>;
 export function ask(p: Predicate | (() => Predicate)): MaybeAsync<Result<MaybeAsync<void>>> {
     if (typeof p === 'function') p = p();
-    let link = Link.init(p);
-    let direction = true;
+
     console.log(`start:\t${(formatTime)(new Date())}`);
     const state = {
-        link,
-        direction,
+        link: Link.init(p),
+        direction: true,
         unwindLink: null,
 
         loops: 0,
@@ -783,30 +785,36 @@ export function ask(p: Predicate | (() => Predicate)): MaybeAsync<Result<MaybeAs
         maxDepth: 0,
         profile: {link: {down: 0, up: 0, push: 0, pop: 0}}
     };
-    return Pot.some(state)
-        .map(loop)
-        .map(state => (console.log(`end:\t${(formatTime)(new Date())}\nloops:\t${state.loops}\ndt:\t${Date.now() - state.start}\ndepth:\t${state.maxDepth}\nprofile:\t${JSON.stringify(state.profile)}`), state))
-        .map(({direction}) => direction, () => false)
-        .map(success => {
-            if (success) {
-                return {
-                    success,
-                    teardown() {
-                        state.unwindLink = state.link.root;
-                        while (state.link.child) state.link = state.link.down();
-                        return Pot.some(state)
-                            .map(loopUnwind)
-                            .map((state) => {console.log(state.loops)}).unwrap();
-                    },
-                };
-            }
-            return {
+
+    const teardown = function() {
+        state.unwindLink = state.link.root;
+        while (state.link.child) state.link = state.link.down();
+        return Pot.some(state)
+            .map(loopUnwind)
+            .map((state) => {console.log(state.loops)}).unwrap();
+    };
+
+    const next = function() {
+        state.direction = true;
+        if (state.link.parent === null && state.link.child !== null) {
+            state.link = state.link.down();
+        }
+        return Pot.some(state)
+            .map(loop)
+            .map(state => (console.log(`end:\t${(formatTime)(new Date())}\nloops:\t${state.loops}\ndt:\t${Date.now() - state.start}\ndepth:\t${state.maxDepth}\nprofile:\t${JSON.stringify(state.profile)}`), state))
+            .map(({direction}) => direction, () => false)
+            .map(success => ({
                 success,
-                teardown() {},
-            };
-        })
-        .unwrap();
+                next,
+                teardown,
+            }))
+            .unwrap();
+    };
+
+    return next();
 }
+
+// ask(function*(){yield true}).next().next().teardown()
 
 type Value<T> =
     T extends Ptr<infer P> ?
@@ -941,10 +949,10 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
             if (f === false) this.reporter.assert(true, message);
             else this.reporter.assert(false, `Expected ${inspect(f)} to be false. ${message}`);
         }
-        throws(E: new () => Error, f: () => Promise<never>, message?: string): Promise<void>;
-        throws(E: new () => Error, f: () => never, message?: string): void;
-        throws(E: new () => Error, f: () => never | Promise<never>, message?: string): void | Promise<void>;
-        throws(E: new () => Error, f: () => never | Promise<never>, message = ''): void | Promise<void> {
+        throws(E: new () => Error, f: () => Promise<any>, message?: string): Promise<void>;
+        throws(E: new () => Error, f: () => any, message?: string): void;
+        throws(E: new () => Error, f: () => MaybeAsync<any>, message?: string): void | Promise<void>;
+        throws(E: new () => Error, f: () => MaybeAsync<any>, message = ''): void | Promise<void> {
             try {
                 const r = f();
                 if (r instanceof Promise) {
