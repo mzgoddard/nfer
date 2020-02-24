@@ -1,0 +1,33 @@
+- dashboard
+  - add item
+  - do item
+  - view item  
+- add item
+  - name of item
+  - name is unique
+- confirm remove item
+- view item
+- view instance
+
+- title
+  - flash
+  - text: add item
+  - label: name
+  - input: [name]
+  - button: add
+  - button: cancel
+
+function() {
+    <div>
+        {[text [[['copy', 'add item'], ['style', 'title'], ['level', 'section']]]]}
+        <div>add item</div>
+        <div><label>name</label><input/></div>
+        <div><button>add</button><button>cancel</button></div>
+    </div>
+}
+
+const s = fixed(
+    [[node], ['block', [
+        [appendChild, [node, []]],
+    ]]]
+)

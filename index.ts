@@ -1022,6 +1022,40 @@ if (typeof process === 'object' && process.env.NODE_ENV === 'test') {
     const s = new Suite();
 
     try {
+        // const value = addr();
+        // const parent = addr();
+        // const sibling = addr();
+        // const child = addr();
+        // const source = addr();
+        // [
+        //     ['match', [source, {constructor: Link, value}]],
+        //     ['block', [
+        //         ['method', [source, 'push', [2], {constructor: Link, value: 2, parent: {value}}]]
+        //     ]],
+        //     ['match', [source, {constructor: Link, value}]],
+        // ];
+        // [
+        //     {constructor: Link, parent, sibling, child},
+        //     ['block', [
+        //         ['match', [parent, {constructor: Link}]],
+        //         ['branch', [
+        //             ['block', [
+        //                 ['match', [child, null]],
+        //                 ['pop', [], parent],
+        //             ]],
+        //             ['block', [
+        //                 ['match', [child, {constructor: Link}]],
+        //                 ['throws', ['pop', []]],
+        //             ]],
+        //             ['up', [], parent],
+        //             ['push', [2], {constructor: Link, value: 2, parent: {value}}],
+        //         ]],
+        //     ]],
+        //     {constructor: Link, value}
+        // ];
+        // ['block', [
+
+        // ]]
         // Link
         s.test('Link.init', t => {
             const l = Link.init(1);

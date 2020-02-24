@@ -1,6 +1,7 @@
 // house(color, nation, pet, drink, movie genre)
 
 import {Ptr, bind, bound, unbound, value, ref, read, UnboundAddress, BoundAddress, bind2, bindUnbound, ask, addr, formatValue, formatAddress, SyncPredicate, deref, Address, Predicate, Cons, demand} from '.';
+import { getDefaultFormatCodeSettings } from 'typescript';
 
 enum Color {Red}
 enum Nation {Japan}
@@ -255,19 +256,40 @@ function* nth0<T>(v: T | UnboundAddress<T> | BoundAddress<T>, i: Ptr<number>, l:
 // .add(f`v, l`(match, (v, l) => list(_, _, _, v, _), l))
 // .add(f`v, l`(match, (v, l) => list(_, _, _, _, v), l));
 
-class AddressName {
+class Id<Type = any> {
     name: string;
+
+    static _ = new Id('');
+
     constructor(name: string) {
         this.name = name;
     }
 }
 
-function n([name]: TemplateStringsArray) {
-    return new AddressName(name);
+function id<Type = any>(name: string): Id<Type>;
+function id<Type = any>(strings: TemplateStringsArray): Id<Type>;
+function id<Type = any>(...args: [string] | [TemplateStringsArray]): Id<Type>;
+function id<Type = any>(...args: [string] | [TemplateStringsArray]) {
+    const arg0 = args[0];
+    if (typeof arg0 === 'string') {
+        return new Id<Type>(arg0);
+    }
+    const [name] = arg0;
+    return new Id<Type>(name);
 }
 
+// type IdPtr<T> = Id<T> | Ptr<T>;
+
+// type FactValue = IdPtr<boolean | number | string | symbol | {[key: any]: FactValue}>;
+// type FactArgs = FactValue[];
+// type FactCall<P extends Predicate, Args extends FactArgs> = [() => P] | [(...args: Args) => P, Args];
+// type FactBlock = ['block', FactExpr[]];
+// type FactBranch = ['branch', FactExpr[]];
+// type FactExpr = FactCall<Predicate, FactArgs> | FactBlock | FactBranch;
+// type Fact<Args extends FactArgs, Body extends FactExpr> = [Args] | [Args, Body];
+
 function clone(fact) {
-    if (fact instanceof AddressName) {
+    if (fact instanceof Id) {
         if (!fact.name) return addr();
         if (this[fact.name]) return this[fact.name];
         return this[fact.name] = addr();
@@ -342,7 +364,7 @@ function* member<T>(item: Ptr<T>, list: Ptr<Cons<T> | T[]>) {
     }
 }
 
-function fs(...initialFacts) {
+function facts(...initialFacts) {
     let s = initialFacts.slice();
     function* facts(...args) {
         const t = s;
@@ -350,8 +372,12 @@ function fs(...initialFacts) {
         for (const b = call(t[i], args); yield b;)
         if ((yield true) === false) return;
     }
-    facts.add = fact => {
-        s = [...s, fact];
+    facts.prepend = (...newFacts) => {
+        s = [...newFacts, ...s];
+        return this;
+    };
+    facts.append = (...newFacts) => {
+        s = [...s, ...newFacts];
         return this;
     };
     facts.remove = args => {
@@ -371,18 +397,27 @@ function fs(...initialFacts) {
             s.splice(index, 1);
         }
     };
-    facts.removeAll = () => {
+    facts.clear = () => {
         s = [];
         return this;
     };
     return facts;
 }
 
-const _ = n``;
+function fixedFacts(...onlyFacts) {
+    function* facts(...args) {
+        for (let i = 0; i < onlyFacts.length; i++)
+        for (const b = call(onlyFacts[i], args); yield b;)
+        if ((yield true) === false) return;
+    }
+    return facts;
+}
 
-const v = n`v`;
+const {_} = Id;
 
-const exist = fs(
+const v = id`v`;
+
+const exist = facts(
     [[v, [v, _, _, _, _]]],
     [[v, [_, v, _, _, _]]],
     [[v, [_, _, v, _, _]]],
@@ -390,9 +425,9 @@ const exist = fs(
     [[v, [_, _, _, _, v]]],
 );
 
-const [h, zebraOwner, waterDrinker] = [n`h`, n`zebraOwner`, n`waterDrinker`];
+const [h, zebraOwner, waterDrinker] = ['h', 'zebraOwner', 'waterDrinker'].map(id);
 
-const question = fs(
+const question = fixedFacts(
     [[zebraOwner, waterDrinker], [
         [puzzle, [h]],
         [exist, [[_, zebraOwner, 'zebra', _, _], h]],
@@ -400,9 +435,9 @@ const question = fs(
     ]],
 );
 
-const [minHigh, minLow, xt] = [n`minHigh`, n`minLow`, n`xt`];
+const [minHigh, minLow, xt] = [id`minHigh`, id`minLow`, id`xt`];
 
-const time = fs(
+const time = facts(
     [["time", [1, minHigh, minLow], [1, 3, minHigh, minLow]]],
     [["time", xt, xt]],
 );
@@ -413,9 +448,9 @@ const tapTime = (tapSequence: number[]) => {
 };
 
 (async () => {
-    const h = addr<List>();
+    // const h = addr<List>();
     const zebraOwner = addr<string>();
-    const waterDrinker = addr();
+    const waterDrinker = addr<string>();
     // const result = ask(every(
     //     // () => puzzle(h),
     //     clone([puzzle, [h]]),
@@ -433,13 +468,13 @@ const tapTime = (tapSequence: number[]) => {
     //     [exist, [[_, zebraOwner, 'zebra', _, _], h]],
     //     [exist, [[_, waterDrinker, _, 'water', _], h]],
     // ]));
-    console.log(demand([zebraOwner, waterDrinker], question(zebraOwner, waterDrinker) as SyncPredicate));
-    const result = ask(question(zebraOwner, waterDrinker));
-    if (result.success) {
-        console.log(...formatAddress([zebraOwner, waterDrinker]));
-        result.teardown();
-    }
-    console.log(formatAddress(zebraOwner), formatAddress(waterDrinker));
+    console.log(...demand([zebraOwner, waterDrinker], question(zebraOwner, waterDrinker) as SyncPredicate));
+    // const result = ask(question(zebraOwner, waterDrinker));
+    // if (result.success) {
+    //     console.log(...formatAddress([zebraOwner, waterDrinker]));
+    //     result.teardown();
+    // }
+    // console.log(formatAddress(zebraOwner), formatAddress(waterDrinker));
     // if (ask(and(
     //     () => puzzle(h),
     //     () => and(
