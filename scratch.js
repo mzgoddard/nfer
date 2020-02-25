@@ -357,12 +357,12 @@ function setScope(scope) {
 function callFact([[args, body], params]) {
     const lastScope = Thread.scope;
     const scope = {};
-    return block(
+    return Object.assign(block(
         [match, [args, params, scope, lastScope]],
         [setScope, [scope]],
         body,
         [setScope, [lastScope]],
-    );
+    ), {cutPoint: true});
 }
 
 function call(value) {
