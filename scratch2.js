@@ -21,76 +21,7 @@ import { forEachChild } from "typescript";
 // 	[branch, [[block, [[select, [label, oldLabel]], [false], [cut]], [true]]]],
 // )
 
-// function* block(...statements) {
-//     for (let i = 0; i > 0 && i <= statements.length; i += (yield statements[i]) ? 1 : -1)
-//     if (i === statements.length)
-//     if ((yield true) === false) return false;
-//     else i--;
-// }
-
-function block(...statements) {
-    let state = 2;
-    let index = 0;
-    return {
-        next(forward) {
-            switch (state) {
-                case 0:
-                    if (forward === false) {
-                        state = 3;
-                        return {done: true};
-                    }
-                    forward = false;
-                case 1:
-                    index += forward ? 1 : -1;
-                case 2:
-                    forward = index >= 0 && index <= statements.length;
-                    if (index === statements.length) {
-                        state = 0;
-                        return {value: true};
-                    } else if (forward !== false) {
-                        state = 1;
-                        return {value: statements[index]};
-                    }
-                    state = 3;
-                case 3:
-                    return {done: true};
-            }
-        }
-    }
-}
-
-// function* branch(...branches) {
-//     for (const branch of branches)
-//     while (yield branch)
-//     if ((yield true) === false) return;
-// }
-
-function branch(...branches) {
-    let state = 1;
-    let branchIndex = -1;
-    return {
-        next(forward) {
-            switch (state) {
-                case 0:
-                    if (forward) {
-                        state = 1;
-                        return {value: true};
-                    }
-                    branchIndex += 1;
-                    forward = branchIndex >= branches.length;
-                case 1:
-                    if (forward !== false) {
-                        state = 0;
-                        return {value: branches[branchIndex]};
-                    }
-                    state = 2;
-                case 2:
-                    return {done: true};
-            }
-        },
-    };
-}
-
+const CUT = -3;
 const REPLACE = -2;
 const UNWIND = -1;
 const RETURN_FALSE = 0;
@@ -98,7 +29,7 @@ const RETURN_TRUE = 1;
 const PUSH_FIRST = 2;
 const PUSH_REPEAT = 3;
 
-function branc(...branches) {
+function branch(...branches) {
     let i = 0;
     return {
         next(status) {
@@ -121,7 +52,7 @@ function branc(...branches) {
     }
 }
 
-function bloc(...statements) {
+function block(...statements) {
     let i = 0;
     return {
         next(status) {
@@ -152,9 +83,28 @@ class Frame {
         this.child = child;
     }
 
+    get ceiling() {
+        return this.parent ? this.parent.ceiling : this;
+    }
+    get floor() {
+        return this.child ? this.child.floor : this;
+    }
+    get cutPoint() {
+        if (this.parent) {
+            if (!this.cell.cutPoint) return this.parent.cutPoint;
+            return this.parent;
+        }
+        return this;
+    }
+
+    ancestorOf(child) {
+        return child ? (this.child === child || this.ancestorOf(child.parent)) : false;
+    }
+
     up() { return this.parent; }
     down() { return this.child; }
-    bottom() { return this.child ? this.child.bottom() : this; }
+    top() { return this.ceiling; }
+    bottom() { return this.floor; }
     push(cell) {
         if (this.child && this.child.tailOf === cell) return this.down();
         return this.child = new Frame(cell, this, this.child, null);
@@ -267,25 +217,6 @@ function readAddress(arg, scope) {
     return arg;
 }
 
-function bindOne(left, right) {
-    let state = 0;
-    return {
-        next() {
-            switch (state) {
-            case 0:
-                left.value = right;
-                state = 1;
-                return {value: true};
-            case 1:
-                left.value = undefined;
-                state = 2;
-            case 2:
-                return {done: true};
-            }
-        },
-    };
-}
-
 class Primitive {
     next(status) {
         switch (status) {
@@ -326,6 +257,34 @@ class Primitive {
     }
 }
 
+class Delegate extends Primitive {
+    constructor(delegate) {
+        super();
+        this.delegate = delegate;
+    }
+    first() {
+        return this.delegate.first ? this.delegate.first() : this.default();
+    }
+    repeat() {
+        return this.delegate.repeat ? this.delegate.repeat() : this.default();
+    }
+    true() {
+        return this.delegate.true ? this.delegate.true() : this.default();
+    }
+    false() {
+        return this.delegate.false ? this.delegate.false() : this.default();
+    }
+    unwind() {
+        return this.delegate.unwind ? this.delegate.unwind() : this.default();
+    }
+    replace() {
+        return this.delegate.replace ? this.delegate.replace() : this.default();
+    }
+    default() {
+        return this.delegate.default ? this.delegate.default() : UNWIND;
+    }
+}
+
 class BindOne extends Primitive {
     constructor(left, right) {
         super();
@@ -342,24 +301,8 @@ class BindOne extends Primitive {
     }
 }
 
-function bindOn(left, right) {
+function bindOne(left, right) {
     return new BindOne(left, right);
-    return {
-        next(status) {
-            switch (status) {
-            case PUSH_FIRST:
-                left.value = right;
-                return RETURN_TRUE;
-            case RETURN_FALSE:
-            case RETURN_TRUE:
-            case PUSH_REPEAT:
-            case UNWIND:
-            default:
-                if (left.value === right) left.value = undefined;
-                return UNWIND;
-            }
-        }
-    }
 }
 
 function bind(left, right, leftScope, rightScope) {
@@ -402,17 +345,6 @@ class Replace extends Primitive {
     replace() {
         return this.cell;
     }
-    default() {
-
-    }
-}
-
-function replace(cell) {
-    return {
-        next(status) {
-            
-        }
-    };
 }
 
 class Bind extends Replace {
@@ -430,14 +362,14 @@ class Bind extends Replace {
 
         if (left instanceof Address) {
             if (typeof left.value === 'undefined') {
-                this.cell = bindOn(left, right);
+                this.cell = bindOne(left, right);
                 return REPLACE;
             }
             left = left.value;
         }
         if (right instanceof Address) {
             if (right.value === 'undefined') {
-                this.cell = bindOn(right, left);
+                this.cell = bindOne(right, left);
                 return REPLACE;
             }
             right = right.value;
@@ -447,124 +379,76 @@ class Bind extends Replace {
     }
 }
 
-function bin(left, right, leftScope, rightScope) {
-    return {
-        next(status) {
-            switch (status) {
-            case PUSH_FIRST:
-                left = readAddress(left, leftScope);
-                right = readAddress(right, rightScope);
+function bind(left, right, leftScope, rightScope) {
+    return new Bind(left, right, leftScope, rightScope);
+}
 
-                if (left instanceof Address) {
-                    if (typeof left.value === 'undefined') {
-                        return bindOn(left, right);
-                    }
-                    left = left.value;
+class Cut extends Primitive {
+    first() {
+        return RETURN_TRUE;
+    }
+    default() {
+        return CUT;
+    }
+}
+
+const cut = new Cut();
+
+const matchArray = function() {
+    return [block, right.map((item, index) => [match, [left[index], right[index], leftScope, rightScope]])];
+};
+
+const matchObject = function() {
+    return [block, keys.map(key => [match, [left[key], right[key], leftScope, rightScope]])];
+};
+
+const matchKeys = function(left, right, leftScope, rightScope) {
+    return new Delegate({
+        first() {
+            const l = read(left);
+            const r = read(right);
+
+            if (Object(right) === right) {
+                if (Object(left) !== left) return false;
+                if (Array.isArray(right)) {
+                    if (!Array.isArray(left)) return false;
+                    if (left.length !== right.length) return false;
+                    return matchArray(left, right, leftScope, rightScope);
                 }
-                if (right instanceof Address) {
-                    if (right.value === 'undefined') {
-                        return bindOn(right, left);
-                    }
-                    right = right.value;
-                }
-
-                return left === right ? RETURN_TRUE : RETURN_FALSE;
-
-            case RETURN_TRUE:
-            case RETURN_FALSE:
-                return status;
-
-            case PUSH_REPEAT:
-            case UNWIND:
-            default:
-                return UNWIND;
+                const keys = Object.keys(right);
+                for (const key of keys) if (!(key in left)) return false;
+                for (const key in left) if (!(right.includes(key))) return false;
+                return matchObject(keys, left, right, leftS)
             }
+
+            return RETURN_FALSE;
         },
-    };
-}
+    });
+};
 
-function match(left, right, leftScope, rightScope) {
-    left = readAddress(left, leftScope);
-    right = readAddress(right, rightScope);
-
-    if (left instanceof Address) {
-        if (typeof left.value === 'undefined') {
-            left.value = right;
-            return true;
-        }
-        left = left.value;
-    }
-    if (right instanceof Address) {
-        if (right.value === 'undefined') {
-            right.value = left;
-            return true;
-        }
-        right = right.value;
-    }
-
-    if (Object(right) === right) {
-        if (Object(left) !== left) return false;
-        if (Array.isArray(right)) {
-            if (!Array.isArray(left)) return false;
-            if (left.length !== right.length) return false;
-            return block(...right.map((item, index) => [match, [left[index], right[index]]]));
-        }
-        const keys = Object.keys(right);
-        for (const key of keys) if (!(key in left)) return false;
-        for (const key in left) if (!(right.includes(key))) return false;
-        return block(...keys.map(key => [match, [left[key], right[key]]]));
-    }
-
-    return left === right;
-}
-
-const matc = function(left, right, leftScope, rightScope) {
-    return branch(
+const match = (function() {
+    const [left, right, leftScope, rightScope] = ['left', 'right', 'leftScope', 'rightScope'].map(id);
+    return [[left, right, leftScope, rightScope], [branch, [
         [block, [
             [bind, [left, right, leftScope, rightScope]],
             [cut],
         ]],
-        () => ({
-            next(forward) {
-                if (forward) {
-                    const l = read(left);
-                    const r = read(right);
-
-                    if (Object(right) === right) {
-                        if (Object(left) !== left) return false;
-                        if (Array.isArray(right)) {
-                            if (!Array.isArray(left)) return false;
-                            if (left.length !== right.length) return false;
-                            return block(...right.map((item, index) => [match, [left[index], right[index]]]));
-                        }
-                        const keys = Object.keys(right);
-                        for (const key of keys) if (!(key in left)) return false;
-                        for (const key in left) if (!(right.includes(key))) return false;
-                        return block(...keys.map(key => [match, [left[key], right[key]]]));
-                    }
-                }
-                return {done: true};
-            },
-        }),
-    );
-};
+        [matchKeys, [left, right, leftScope, rightScope]],
+    ]]];
+}());
 
 function setScope(scope) {
-    let state = 0;
     let lastScope;
     return {
-        next() {
-            switch (state) {
-            case 0:
+        next(status) {
+            switch (status) {
+            case PUSH_FIRST:
                 lastScope = Thread.scope;
                 Thread.scope = scope;
-                state = 1;
-                return {value: true};
-            case 1:
+                return RETURN_TRUE;
+            default:
                 Thread.scope = lastScope;
-                state = 2;
-            case 2:
-                return {done: true};
+                return UNWIND;
             }
         },
     };
@@ -597,63 +481,37 @@ function call(value) {
 }
 
 function unwind(state) {
-    if (!state.unwind) state.unwind = state.frame.tailOf;
+    if (!state.unwind) state.unwind = state.frame.frame;
     state.frame.bottom();
 }
 
 function stepUnwind(state) {
-    if (state.frame.tailOf === state.unwind) {
+    if (state.frame.tailOf === state.unwind.tailOf) {
         state.unwind = null;
         return;
     }
 
-    state.frame.cell.next(false);
+    const status = state.frame.cell.next(UNWIND);
 
-    state.frame.pop().bottom();
-}
-
-function stepUnwin(state) {
-    if (state.frame.tailOf === state.unwind) {
-        state.unwind = null;
-        return;
+    if (status === CUT) {
+        const cutPoint = state.frame.cutPoint;
+        if (!state.unwind || cutPoint.ancestorOf(state.unwind)) {
+            state.unwind = cutPoint.tailOf;
+        }
     }
-
-    state.frame.cell.next(UNWIND);
 
     state.frame.pop().bottom();
 }
 
 function stepWind(state) {
-    const {value, done} = state.frame.cell.next(state.forward);
-
-    state.forward = Boolean(value);
-    if (done) {
-        if (value === true) throw new Error();
-        else if (Object(value) === value) {
-            state.frame.cell = call(value);
-            unwind(state);
-        } else if (!value) {
-            state.frame.up();
-            unwind(state);
-        }
-    } else {
-        if (Object(value) === value) {
-            const child = state.frame.child;
-            state.frame.push(value);
-            if (state.frame.tailOf !== child.tailOf) {
-                state.frame.cell = call(value);
-            }
-        } else {
-            state.frame.up();
-            if (!value) unwind(state);
-        }
-    }
-}
-
-function stepWin(state) {
     let status = state.frame.cell.next(state.status);
 
     switch (status) {
+    case CUT:
+        const cutPoint = state.frame.cutPoint;
+        if (!state.unwind || cutPoint.ancestorOf(state.unwind)) {
+            state.unwind = cutPoint.tailOf;
+        }
     case UNWIND:
         status = RETURN_FALSE;
     case RETURN_FALSE:
