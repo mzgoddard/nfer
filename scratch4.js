@@ -1,6 +1,7 @@
 const CANCEL = 0;
 
-function block(...statements) {
+function block(scope, ...statements) {
+    let id = Math.random().toString(16).substring(2, 7);
     let i = 0;
     let again = [];
     const cancel = () => {
@@ -10,19 +11,20 @@ function block(...statements) {
         return CANCEL;
     };
     const next = () => {
+        if (i === statements.length) i--;
         while (i >= 0 && i < statements.length) {
-            again[i] = call(statements[i], again[i]);
+            again[i] = call(scope, statements[i], again[i]);
+            // console.log(id, 'block', i, again[i]);
             if (again[i] === CANCEL) return cancel();
             i += again[i] ? 1 : -1;
         }
-        if (i >= 0) i--;
         return i === statements.length ? next : false;
     };
     next.cancel = cancel;
     return next;
 }
 
-function branch(...branches) {
+function branch(scope, ...branches) {
     let i = 0;
     let again = null;
     const cancel = () => {
@@ -32,7 +34,7 @@ function branch(...branches) {
     };
     const next = () => {
         for (; i < branches.length; i++) {
-            again = call(branches[i], again);
+            again = call(scope, branches[i], again);
             if (again === CANCEL) return cancel();
             if (again) return next;
         }
@@ -58,8 +60,10 @@ function id(name) {
     return new Id(name);
 }
 
+const _ = new Id();
+
 class Address {
-    constructor(name, scope) {
+    constructor(scope, name) {
         this.name = name || (Address.nextId++).toString();
         this.scope = scope;
     }
@@ -74,24 +78,45 @@ class Address {
 
 Address.nextId = 0;
 
-const readAddress = (arg, scope) => {
+class AnonymousAddress extends Address {
+    constructor(scope = null, name = '_') {
+        super(scope, name);
+        this._value = undefined;
+    }
+
+    get value() {
+        return this._value;
+    }
+    set value(value) {
+        this._value = value;
+    }
+}
+
+const readId = (scope, name) => {
+    const id = scope[name];
+    if (typeof id === 'undefined') {
+        return new Address(scope, name);
+    }
+    return readAddress(scope, id);
+};
+
+const readAddress = (scope, arg) => {
     if (arg instanceof Id) {
-        const address = readAddress(scope[arg.name], scope);
-        if (typeof address === 'undefined') return new Address(arg.name, scope);
-        return address;
-    } else if (arg instanceof Address) {
-        if (arg.value instanceof Address) return readAddress(arg.value, scope);
-        return arg;
+        return readId(scope, arg.name);
+    } else if (arg instanceof Address && arg.value instanceof Address) {
+        return readAddress(scope, arg.value);
+    } else if (typeof arg === 'undefined') {
+        return new AnonymousAddress();
     }
     return arg;
 };
 
-const read = (arg, scope) => {
-    const address = readAddress(scope[arg.name], scope);
+const read = (scope, arg) => {
+    const address = readAddress(scope, arg);
     return address instanceof Address ? address.value : address;
 };
 
-function bindAddress(left, right) {
+function bindAddress(scope, left, right) {
     const next = () => {
         left.value = right;
         const next = () => {
@@ -109,31 +134,35 @@ function bindAddress(left, right) {
 
 }
 
-function bind(left, right, leftScope, rightScope) {
+function bind(scope, left, right, leftScope, rightScope) {
     const next = () => {
-        left = readAddress(left, leftScope);
-        right = readAddress(right, rightScope);
+        leftScope = read(scope, leftScope);
+        rightScope = read(scope, rightScope);
+        left = readAddress(scope, left);
+        right = readAddress(scope, right);
+
+        // console.log(left, right);
 
         if (left instanceof Address) {
             if (typeof left.value === 'undefined') {
-                return bindAddress(left, right)();
+                return bindAddress(rightScope, left, right)();
             }
             left = left.value;
         }
         if (right instanceof Address) {
             if (typeof right.value === 'undefined') {
-                return bindAddress(right, left)();
+                return bindAddress(leftScope, right, left)();
             }
             right = right.value;
         }
 
+        // console.log(left, right);
+
         return left === right ? NO : false;
     };
-    next.cancel = NO.cancel;
+    next.cancel = YES.cancel;
     return next;
 }
-
-let _scope = null;
 
 function guardScope(callScope, scope, body) {
     const next = () => call(read(callScope, scope), body);
@@ -148,14 +177,16 @@ function bindFactIndices(callScope, args, params, scope, paramsScope) {
         paramsScope = read(callScope, paramsScope);
         if (args.length > params.length) return false;
         for (let i = 0; i < args.length; i++) {
-            scope[args[i].name] = readAddress(callScope, params[i]);
+            scope[args[i].name] = readAddress(paramsScope, params[i]);
         }
-        return () => {
+        const next = () => {
             for (let i = 0; i < args.length; i++) {
                 scope[args[i].name] = undefined;
             }
             return false;
         };
+        next.cancel = NO.cancel;
+        return next;
     };
     next.cancel = () => {
         for (let i = 0; i < args.length; i++) {
@@ -173,7 +204,7 @@ function bindFactKeys(callScope, [args], params, scope, paramsScope) {
         paramsScope = read(callScope, paramsScope);
         for (const key in args) if (!(key in params)) return false;
         for (const key in args) {
-            scope[args[key].name] = readAddress(callScope, params[key]);
+            scope[args[key].name] = readAddress(paramsScope, params[key]);
         }
         return () => {
             for (const key in args) {
@@ -191,10 +222,23 @@ function bindFactKeys(callScope, [args], params, scope, paramsScope) {
     return next;
 }
 
+function cutPoint(scope, body) {
+    let again;
+    const next = () => {
+        again = call(scope, body, again);
+        if (again === false || again === CANCEL) return false;
+        return next;
+    };
+    next.cancel = () => {
+        if (again) again.cancel();
+        return CANCEL;
+    };
+    return next;
+}
+
 function fact(args, body) {
-    if (!body) {
-        body = yes;
-    }
+    if (!body) body = yes;
+
     let bindArgs;
     if (Array.isArray(args) && args.every(arg => arg instanceof Id)) {
         bindArgs = bindFactIndices;
@@ -203,18 +247,20 @@ function fact(args, body) {
     } else {
         bindArgs = match;
     }
+
     const [params, scope, paramsScope] = ['params', 'scope', 'paramsScope'].map(id);
     body = [block, [
         [bindArgs, [args, params, scope, paramsScope]],
         [guardScope, [scope, body]],
     ]];
-    return function(callScope, ...params) {
+
+    return function(paramsScope, ...params) {
         const scope = {};
-        return block({
+        return cutPoint({
             params,
             scope,
             paramsScope,
-        }, ...body);
+        }, body);
     };
 }
 
@@ -236,46 +282,125 @@ function callCancel(next) {
     return CANCEL;
 }
 
-const CUT = Object.assign(() => CANCEL, {cancel: () => CANCEL});
+const CUT0 = Object.assign(() => CANCEL, {cancel: () => CANCEL});
+const CUT = Object.assign(() => CUT0, {cancel: () => CANCEL});
 const cut = () => CUT;
 
-function matchArray(left, right, leftScope, rightScope) {
-    let i = 0;
-    const again = [];
-    const cancel = () => {
-        for (; i >= 0; i--) {
-            if (again[i]) again[i].cancel();
-        }
-        return CANCEL;
-    };
+function match(scope, left, right, leftScope, rightScope) {
     const next = () => {
-        left = read(left);
-        right = read(right);
+        // console.log(left, right, leftScope, rightScope);
+        const bound = bind(scope, left, right, leftScope, rightScope)();
 
-        if (Array.isArray(left) && Array.isArray(right) && left.length === right.length) {
-            return block(left.map((_, i) => [match, [left[i], right[i], leftScope, rightScope]]))();
-            while (i >= 0 && i < left.length) {
-                again[i] = call([match, [left[i], right[i], leftScope, rightScope]], again[i]);
-                i += again[i] ? 1 : -1;
+        // console.log(bound);
+        if (bound) return bound;
+
+        leftScope = read(scope, leftScope);
+        rightScope = read(scope, rightScope);
+        left = read(scope, left);
+        right = read(scope, right);
+
+        // console.log(left, right, leftScope, rightScope);
+
+        if (Array.isArray(left)) {
+            if (Array.isArray(right) && left.length === right.length) {
+                return block(scope, ...left.map((_, i) => [match, [readAddress(leftScope, left[i]), readAddress(rightScope, right[i]), leftScope, rightScope]]))();
             }
-            i -= 1;
-            return i >= 0;
+        } else if (left && typeof left === 'object') {
+            if (right && typeof right === 'object') {
+                for (const key in left) if (!(key in right)) return false;
+                return block(scope, ...Object.keys(left).map(key => [match, [readAddress(leftScope, left[key]), readAddress(rightScope, right[key]), leftScope, rightScope]]))();
+            }
         }
 
         return false;
     };
-    next.cancel = cancel;
+    next.cancel = YES.cancel;
     return next;
 }
 
-const match = (() => {
-    const [left, right, leftScope, rightScope] = ['left', 'right', 'leftScope', 'rightScope'].map(id);
-    return [[left, right, leftScope, rightScope], [block, [
-        [branch, [
-            [bind, [left, right, leftScope, rightScope]],
-            [matchArray, [left, right, leftScope, rightScope]],
-            [matchObject, [left, right, leftScope, rightScope]],
-        ]],
-        [cut, []],
-    ]]];
-})();
+function readJSON(scope, arg) {
+    const value = read(scope, arg);
+    if (value && typeof value === 'object') {
+        if (Array.isArray(value)) {
+            return value.map(arg => readJSON(scope, arg));
+        }
+        const o = {};
+        for (const key in value) {
+            o[key] = readJSON(scope, value[key]);
+        }
+        return o;
+    }
+    return value;
+}
+
+function json(scope, object, string) {
+
+}
+
+function log(scope, ...info) {
+    const next = () => {
+        // console.log(info);
+        console.log(...info.map(arg => readJSON(scope, arg)));
+        return NO;
+    };
+    next.cancel = YES.cancel;
+    return next;
+}
+
+{
+    call({}, [log, [1]]);
+    call({key: 2}, [log, [id('key')]]);
+    call({}, [block, [
+        [log, [1]],
+        [log, [2]],
+        [log, [3]],
+        [log, [4]],
+    ]]);
+    call({a: 1, b: 2}, [log, [{c: id('a'), d: id('b')}]]);
+    call({c: 3}, [[[id('a'), id('b')], [log, [id('a'), id('b')]]], [1, id('c')]]);
+    const factA = fact(...[['a'], [yes, []]]);
+    call({b: undefined}, [block, [
+        [log, ['log', id('b')]],
+        [factA, [id('b')]],
+        [log, ['log', id('b')]],
+    ]]);
+    call({}, [[[id('a'), id('b')], [log, [id('b'), id('a')]]], [1, 2]]);
+    call({}, [block, [
+        [[[{a: 1, b: 2}], [yes, []]], [{a: id('c'), b: _}]],
+        [log, [id('c'), id('d')]],
+    ]]);
+    call({}, [block, [
+        [[[], [block, [
+            [branch, [
+                [bind, [id('i'), 1]],
+                [bind, [id('i'), 2]],
+                [cut, []],
+                [bind, [id('i'), 3]],
+                [bind, [id('i'), 4]],
+            ]],
+            [log, [id('i')]],
+            [no, []],
+        ]]], []],
+        [log, ['cut']],
+    ]]);
+    const s0 = {};
+    call(s0, [block, [
+        [[[id('i')], [block, [
+            [log, [id('i'), s0]],
+            [branch, [
+                [bind, [id('i'), 1]],
+                [block, [
+                    [bind, [id('i'), 2]],
+                    [cut, []]
+                ]],
+                [bind, [id('i'), 3]],
+                [bind, [id('i'), 4]],
+            ]],
+            [log, [id('i'), s0]],
+        ]]], [id('a')]],
+        [log, ['cut', id('a'), s0]],
+        [no, []],
+    ]]);
+}
+
+console.log('EOF');
