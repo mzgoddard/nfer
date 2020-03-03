@@ -1,6 +1,3 @@
-import { CancellationToken } from "typescript";
-import { Z_BLOCK } from "zlib";
-
 type Scope = {[key: string]: any};
 type AddressableObject = any[] | {[key: string]: any};
 type Addressable = string | AddressableObject;
@@ -85,6 +82,57 @@ function cut() {
     return CUT;
 }
 
+enum AsapType {
+    Value,
+    Error,
+    Promise,
+};
+
+class Asap<T = any> {
+    _type: AsapType;
+    value: Promise<Asap<T>> | T | Error;
+    constructor(value: Promise<Asap<T> | T> | T | Error, _type: AsapType) {
+        if (typeof _type === 'undefined') {
+            if (value && 'then' in value) {
+                _type = AsapType.Promise;
+            } else if (value instanceof Error) {
+                _type = AsapType.Error;
+            } else {
+                _type = AsapType.Value;
+            }
+        }
+        this._type = _type;
+        if (_type === AsapType.Promise) {
+            this.value = Promise.resolve(value as Promise<Asap<T> | T>).then(Asap.create);
+        } else {
+            this.value = value as (Error | T);
+        }
+    }
+    map<U>(value: (value: T) => Promise<U> | U, error: (error: Error) => Promise<U> | U): Asap<U> {
+        if (this._type === AsapType.Value) return Asap.create(value(this.value as T));
+        else if (this._type === AsapType.Promise) return Asap.create((this.value as Promise<Asap<T>>)
+            .then(inner => inner.map(value, error), error));
+        return Asap.create(error(this.value as Error));
+    }
+    unwrap(): Promise<T> | T {
+        if (this._type === AsapType.Value) return this.value as T;
+        else if (this._type === AsapType.Promise) return (this.value as Promise<Asap<T>>).then(inner => inner.unwrap());
+        throw this.value;
+    }
+    static create<T>(value: Promise<Asap<T> | T> | Asap<T> | T | Error): Asap<T> {
+        if (value instanceof Asap) return value;
+        else if (value && 'then' in value) {
+            return new Asap(value.then(Asap.create, Asap.create), AsapType.Promise);
+        } else if (value instanceof Error) {
+            return new Asap<T>(value, AsapType.Error);
+        } else {
+            return new Asap(value, AsapType.Value);
+        }
+    }
+}
+
+
+
 class Id {
     name: string;
     constructor(name: string) {
@@ -154,8 +202,18 @@ function bindAddress(addr: Address<string>, value: Address | Primitive, binds: O
         binds.push(new UnbindAddress(addr));
         return true;
     }
-    if (value instanceof Address && typeof value.name === 'string') {
-        value = value.scope[value.name];
+    if (value instanceof Address) {
+        if (typeof value.name === 'string') {
+            const valueValue = value.scope[value.name];
+            if (typeof valueValue === 'undefined') {
+                value.scope[value.name] = addrValue;
+                binds.push(new UnbindAddress(value as Address<string>));
+                return true;
+            }
+            value = valueValue;
+        } else {
+            return false;
+        }
     }
     return addrValue === value;
 }
@@ -472,12 +530,42 @@ class Log implements Op {
         this.params = params;
     }
     next() {
-        console.log(...this.params.map(param => readId(this.scope, param)));
+        console.log(...this.params.map(param => inspect(this.scope, param)));
         return TRUE;
     }
     cancel() {
         return CANCEL;
     }
+}
+
+function inspect(scope, arg) {
+    if (arg instanceof Id) {
+        const value = scope[arg.name];
+        if (typeof value === 'undefined') {
+            return arg;
+        }
+        return inspect(scope, value);
+    } else if (arg instanceof Address) {
+        if (typeof arg.name === 'string') {
+            const value = arg.scope[arg.name];
+            if (typeof value === 'undefined') {
+                return arg;
+            }
+            return inspect(arg.scope, arg.scope[arg.name]);
+        }
+        return inspect(arg.scope, arg.name);
+    } else if (arg && typeof arg === 'object') {
+        if (Array.isArray(arg)) {
+            return arg.map(item => inspect(scope, item));
+        } else {
+            const o = {};
+            for (const key in arg) {
+                o[key] = inspect(scope, arg[key]);
+            }
+            return o;
+        }
+    }
+    return arg;
 }
 
 function log(scope, ...params) {
@@ -490,7 +578,7 @@ const existFacts = [
     [[id('item'), [id('_1'), id('_2'), id('item')]]],
 ];
 
-const exists = [id('params'), [block, [[log, [id('params')]], [branchFacts, [existFacts, id('params')]]]]];
+const exists = [id('params'), [block, [[branchFacts, [existFacts, id('params')]]]]];
 
 call({}, [block, [
     [exists, [[1, 0, id('_1')], id('list')]],
@@ -504,17 +592,19 @@ call({}, [block, [
 
 const s1 = {};
 call(s1, [block, [
-    [log, ['a']],
+    // [log, ['a']],
     [exists, [1, id('list')]],
-    [log, ['b', id('list'), s1]],
+    // [log, ['b', id('list'), s1]],
     [exists, [2, id('list')]],
-    [log, ['c', id('list'), s1]],
-    // [exists, [3, id('list')]],
+    // [log, ['c', id('list'), s1]],
+    [exists, [3, id('list')]],
     // [log, ['d']],
     // [log, ['hi']],
     // [match, [id('yes'), [yes]]],
     // id('yes'),
     [log, ['yes', id('list')]],
 ]], FALSE);
+
+
 
 // call({}, [match, []], FALSE);
