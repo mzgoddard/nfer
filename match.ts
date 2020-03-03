@@ -1,27 +1,24 @@
-import { CancellationToken } from "typescript";
-import { Z_BLOCK } from "zlib";
-
 type Scope = {[key: string]: any};
 type AddressableObject = any[] | {[key: string]: any};
 type Addressable = string | AddressableObject;
 type Primitive = boolean | number | string | symbol | ((...args: any[]) => any);
 
 type FactShape<Args extends any[] = any[], Body = CallShape> = [Args] | [Args, Body];
-type MakeOp<Args extends any[] = any[]> = FactShape<Args> | ((scope: Scope, ...args: Args) => Op);
-type CallShape<Args extends any[] = any[]> = [MakeOp<Args>, Args] | ((scope: Scope) => Op);
+type MakeOp<Args extends any[] = any[]> = FactShape<Args> | ((scope: Scope, ...args: Args) => StackFrame);
+type CallShape<Args extends any[] = any[]> = [MakeOp<Args>, Args] | ((scope: Scope) => StackFrame);
 
 const CANCEL: 0 = 0;
 type CANCEL = typeof CANCEL;
 const FALSE: false = false;
 type FALSE = typeof FALSE;
 
-type OpResult = Op | FALSE | CANCEL;
-interface Op {
-    next(): OpResult;
+type FrameResult = StackFrame | FALSE | CANCEL;
+interface StackFrame {
+    next(): FrameResult;
     cancel(): CANCEL;
 }
 
-class True implements Op {
+class True implements StackFrame {
     next() {
         return FALSE;
     }
@@ -32,7 +29,7 @@ class True implements Op {
 
 const TRUE = new True();
 
-class Yes implements Op {
+class Yes implements StackFrame {
     next() {
         return TRUE;
     }
@@ -40,7 +37,7 @@ class Yes implements Op {
         return CANCEL;
     }
 }
-class No implements Op {
+class No implements StackFrame {
     next() {
         return FALSE;
     }
@@ -59,7 +56,7 @@ function no() {
     return NO;
 }
 
-class CancelNext implements Op {
+class CancelNext implements StackFrame {
     next() {
         return CANCEL;
     }
@@ -70,7 +67,7 @@ class CancelNext implements Op {
 
 const CANCEL_NEXT = new CancelNext();
 
-class Cut implements Op {
+class Cut implements StackFrame {
     next() {
         return CANCEL_NEXT;
     }
@@ -132,7 +129,7 @@ function readId(scope: Scope, arg: any): Address | Primitive {
     return arg as Primitive;
 }
 
-class UnbindAddress implements Op {
+class UnbindAddress implements StackFrame {
     addr: Address<string>;
     constructor(addr: Address<string>) {
         this.addr = addr;
@@ -147,22 +144,37 @@ class UnbindAddress implements Op {
     }
 }
 
-function bindAddress(addr: Address<string>, value: Address | Primitive, binds: Op[]) {
+function bindAddress(addr: Address<string>, value: Address | Primitive, binds: StackFrame[]) {
     const addrValue = addr.scope[addr.name];
     if (typeof addrValue === 'undefined') {
         addr.scope[addr.name] = value;
         binds.push(new UnbindAddress(addr));
         return true;
     }
-    if (value instanceof Address && typeof value.name === 'string') {
-        value = value.scope[value.name];
+    if (value instanceof Address) {
+        if (typeof value.name === 'string') {
+            const rightValue = value.scope[value.name];
+            if (typeof rightValue === 'undefined') {
+                if (addrValue && typeof addrValue === 'object') {
+                    value.scope[value.name] = addr;
+                } else {
+                    value.scope[value.name] = addrValue;
+                }
+                binds.push(new UnbindAddress(value as Address<string>));
+                return true;
+            }
+            value = rightValue;
+        } else {
+            return false;
+        }
     }
     return addrValue === value;
 }
 
-function _match(left: any, right: any, leftScope: Scope, rightScope: Scope, binds: Op[]) {
+function _match(left: any, right: any, leftScope: Scope, rightScope: Scope, binds: StackFrame[]) {
     const _left = readId(leftScope, left);
     const _right = readId(rightScope, right);
+    // console.log(_match, left && left.name, inspect(leftScope, _left), right && right.name, inspect(rightScope, _right));
     // console.log(_left, _right);
 
     if (_left === _right) return true;
@@ -208,11 +220,11 @@ function _match(left: any, right: any, leftScope: Scope, rightScope: Scope, bind
     return false;
 }
 
-class Match implements Op {
+class Match implements StackFrame {
     scope: Scope;
     left: any;
     right: any;
-    binds: Op[] = null;
+    binds: StackFrame[] = null;
     constructor(scope: Scope, left: any, right: any) {
         this.scope = scope;
         this.left = left;
@@ -273,7 +285,7 @@ function match(scope: Scope, left: any, right: any) {
 }
 
 {
-    function callOne(scope: Scope, [makeOp, args]: [(scope: Scope, ...args: any[]) => Op, any[]], fn: (name: string, scope: Scope) => void) {
+    function callOne(scope: Scope, [makeOp, args]: [(scope: Scope, ...args: any[]) => StackFrame, any[]], fn: (name: string, scope: Scope) => void) {
         const op = makeOp(scope, ...args);
         const out = op.next();
         if (out) {
@@ -298,14 +310,14 @@ function match(scope: Scope, left: any, right: any) {
     callOne({}, [match, [new Address({}, [id('a'), id('a'), 2]), [{a: id('b')}, {a: {b: id('c')}}, id('c')]]], console.log.bind(console));
 }
 
-class Fact implements Op {
+class Fact implements StackFrame {
     scope: Scope = {};
     args: any[];
     body: CallShape;
     paramsScope: Scope;
     params: any[];
-    match: Op | FALSE | CANCEL = null;
-    repeat: Op | FALSE | CANCEL = null;
+    match: StackFrame | FALSE | CANCEL = null;
+    repeat: StackFrame | FALSE | CANCEL = null;
     constructor(args: any[], body: CallShape, paramsScope: Scope, params: any[]) {
         this.args = args;
         this.body = body;
@@ -338,15 +350,17 @@ function fact(args: any[], body?: CallShape) {
     };
 }
 
-function call(scope: Scope, callShape: CallShape, repeat: Op | FALSE | CANCEL) {
+function call(scope: Scope, callShape: CallShape, repeat: StackFrame | FALSE | CANCEL = FALSE) {
     if (!repeat) {
         if (Array.isArray(callShape)) {
             const [makeOp, params] = callShape;
             if (Array.isArray(makeOp)) {
                 const [args, body] = makeOp;
-                repeat = fact(args, body)(scope, ...params);
+                repeat = params ?
+                    fact(args, body)(scope, ...params) :
+                    fact(args, body)(scope);
             } else {
-                repeat = makeOp(scope, ...params);
+                repeat = params ? makeOp(scope, ...params) : makeOp(scope);
             }
         } else {
             repeat = callShape(scope);
@@ -356,12 +370,12 @@ function call(scope: Scope, callShape: CallShape, repeat: Op | FALSE | CANCEL) {
     return FALSE;
 }
 
-class Block implements Op {
+class Block implements StackFrame {
     scope: Scope;
     statements: CallShape[];
 
     i: number = 0;
-    repeat: OpResult[] = [];
+    repeat: FrameResult[] = [];
     constructor(scope, statements) {
         this.scope = scope;
         this.statements = statements;
@@ -392,12 +406,12 @@ function block(scope, ...statements) {
     return new Block(scope, statements);
 }
 
-class Branch implements Op {
+class Branch implements StackFrame {
     scope: Scope;
     branches: CallShape[];
 
     i: number = 0;
-    repeat: OpResult;
+    repeat: FrameResult;
     constructor(scope, branches) {
         this.scope = scope;
         this.branches = branches;
@@ -424,13 +438,13 @@ function branch(scope, ...branches) {
     return new Branch(scope, branches);
 }
 
-class BranchFacts implements Op {
+class BranchFacts implements StackFrame {
     scope: Scope;
     facts: FactShape[];
     params: any[];
 
     i: number = 0;
-    repeat: OpResult;
+    repeat: FrameResult;
     constructor(scope, facts, params) {
         this.scope = scope;
         this.facts = facts;
@@ -464,7 +478,7 @@ function branchFacts(scope, facts, params) {
     return new BranchFacts(scope, facts, params);
 }
 
-class Log implements Op {
+class Log implements StackFrame {
     scope: Scope;
     params: any[];
     constructor(scope, params) {
@@ -472,7 +486,7 @@ class Log implements Op {
         this.params = params;
     }
     next() {
-        console.log(...this.params.map(param => readId(this.scope, param)));
+        console.log(...this.params.map(param => inspect(this.scope, param)));
         return TRUE;
     }
     cancel() {
@@ -480,17 +494,45 @@ class Log implements Op {
     }
 }
 
+function inspect(scope, obj) {
+    if (obj instanceof Id) {
+        if (typeof scope[obj.name] !== 'undefined') {
+            return inspect(scope, scope[obj.name]);
+        }
+    } else if (obj instanceof Address) {
+        if (typeof obj.name === 'string') {
+            return inspect(obj.scope, obj.scope[obj.name]);
+        }
+        return inspect(obj.scope, obj.name);
+    } else {
+        if (obj && typeof obj === 'object') {
+            if (Array.isArray(obj)) {
+                return obj.map(item => inspect(scope, item));
+            } else {
+                const o = {};
+                for (const key in obj) {
+                    o[key] = inspect(scope, obj[key]);
+                }
+                return o;
+            }
+        }
+    }
+    return obj;
+}
+
 function log(scope, ...params) {
     return new Log(scope, params);
 }
 
+const [item, _1, _2] = 'item, _1, _2'.split(', ').map(id);
 const existFacts = [
-    [[id('item'), [id('item'), id('_1'), id('_2')]]],
-    [[id('item'), [id('_1'), id('item'), id('_2')]]],
-    [[id('item'), [id('_1'), id('_2'), id('item')]]],
+    // [id('params'), [block, [[log, ['existFacts', id('params')]], [no]]]],
+    [[item, [item, _1, _2]], [yes]],
+    [[item, [_1, item, _2]], [yes]],
+    [[item, [_1, _2, item]], [yes]],
 ];
 
-const exists = [id('params'), [block, [[log, [id('params')]], [branchFacts, [existFacts, id('params')]]]]];
+const exists = [id('params'), [block, [[branchFacts, [existFacts, id('params')]]]]];
 
 call({}, [block, [
     [exists, [[1, 0, id('_1')], id('list')]],
@@ -499,22 +541,52 @@ call({}, [block, [
     [branchFacts, [existFacts, [[id('_4'), 2, 0], id('list')]]],
     [branchFacts, [existFacts, [[0, 0, id('_5')], id('list')]]],
     [branchFacts, [existFacts, [[id('_6'), 0, 3], id('list')]]],
-    [log, ['list', id('list')]],
+    [log, ['branchFacts + existFacts =', id('list')]],
 ]], FALSE);
 
 const s1 = {};
 call(s1, [block, [
-    [log, ['a']],
+    // [log, ['a']],
     [exists, [1, id('list')]],
-    [log, ['b', id('list'), s1]],
+    // [log, ['b', id('list'), s1]],
     [exists, [2, id('list')]],
-    [log, ['c', id('list'), s1]],
-    // [exists, [3, id('list')]],
+    // [branchFacts, [existFacts, [2, id('list')]]],
+    // [log, ['c', id('list'), s1]],
+    [exists, [3, id('list')]],
     // [log, ['d']],
     // [log, ['hi']],
     // [match, [id('yes'), [yes]]],
     // id('yes'),
-    [log, ['yes', id('list')]],
+    [log, ['exists =', id('list')]],
 ]], FALSE);
-
+{
+    const [list, _1, _2, _3, _4, _5, _6] = 'list, _1, _2, _3, _4, _5, _6'.split(', ').map(id);
+    call({}, [block, [
+        [branchFacts, [existFacts, [1, list]]],
+        [branchFacts, [existFacts, [2, list]]],
+        [branchFacts, [existFacts, [3, list]]],
+        [log, ['branchFacts + existFacts =', list]],
+    ]], FALSE);
+}
+{
+    const [list, _1, _2, _3, _4, _5, _6] = 'list, _1, _2, _3, _4, _5, _6'.split(', ').map(id);
+    call({}, [block, [
+        [branch, [
+            [match, [[1, _1, _2], list]],
+            [match, [[_1, 1, _2], list]],
+            [match, [[_1, _2, 1], list]],
+        ]],
+        [branch, [
+            [match, [[2, _3, _4], list]],
+            [match, [[_3, 2, _4], list]],
+            [match, [[_3, _4, 2], list]],
+        ]],
+        [branch, [
+            [match, [[3, _5, _6], list]],
+            [match, [[_5, 3, _6], list]],
+            [match, [[_5, _6, 3], list]],
+        ]],
+        [log, ['branch + match =', list]],
+    ]], FALSE);
+}
 // call({}, [match, []], FALSE);
