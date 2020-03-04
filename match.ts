@@ -605,6 +605,11 @@ call(s1, [block, [
     [log, ['yes', id('list')]],
 ]], FALSE);
 
-
+// const [item, head, rest, list] = 'item, head, tail, list'.split(', ').map(id);
+// const member = [branchFacts, [
+//     [[item, [item, tail(rest)]]],
+//     [[item, [head, tail(rest)]], [member, [item, rest]]],
+//     [[item, [item]]],
+// ]];
 
 // call({}, [match, []], FALSE);
