@@ -197,27 +197,51 @@ function _match(left: any, right: any, leftScope: Scope, rightScope: Scope, bind
             if (typeof _right.name === 'string') {
                 return bindAddress(_right as Address<string>, _left, binds);
             } else if (Array.isArray(_left.name) && Array.isArray(_right.name)) {
-                // let leftLength = _left.name.length;
-                // let rightLength = _right.name.length;
-                // if (_left.offset) leftLength -= _left.offset;
-                // if (_right.offset) rightLength -= _right.offset;
-                // if (leftLength < rightLength) {
-                    
-                // }
-                // if (_left.name[_left.name.length - 1] instanceof) {
-                    
-                // }
-                if (_left.name.length === _right.name.length) {
-                const {name, scope: leftScope} = _left;
-                const {name: rightName, scope: rightScope} = _right;
-                for (let i = 0; i < name.length; i++) {
-                    // console.log('m', i, name[i], rightName[i]);
-                    if (!_match(name[i], rightName[i], leftScope, rightScope, binds)) {
-                        // console.log('f', i, name[i], rightName[i]);
-                        return false;
+                let leftLength = _left.name.length;
+                let rightLength = _right.name.length;
+                if (_left.offset) leftLength -= _left.offset;
+                if (_right.offset) rightLength -= _right.offset;
+                const lastLeft = _left.name[_left.name.length - 1];
+                const lastRight = _right.name[_right.name.length - 1];
+                const leftRest = lastLeft instanceof Id && lastLeft.rest;
+                const rightRest = lastRight instanceof Id && lastRight.rest;
+                if (leftRest || rightRest) {
+                    if (leftRest) {
+                        leftLength -= 1;
                     }
-                }
-                return true;
+                    if (rightRest) {
+                        rightLength -= 1;
+                    }
+                    if (leftRest && leftLength <= rightLength) {
+
+                    } else if (rightRest && rightLength <= leftLength) {
+                        
+                    }
+                    const minLength = Math.min(leftLength, rightLength);
+                    const {name, scope: leftScope, offset: offset} = _left;
+                    const {name: rightName, scope: rightScope, offset: rightOffset} = _right;
+                    for (let i = 0; i < minLength; i++) {
+                        // console.log('m', i, name[i], rightName[i]);
+                        if (!_match(name[i + offset], rightName[i + rightOffset], leftScope, rightScope, binds)) {
+                            // console.log('f', i, name[i], rightName[i]);
+                            return false;
+                        }
+                    }
+                    if (leftRest) {
+
+                    }
+                    return true;
+                } else if (leftLength === rightLength) {
+                    const {name, scope: leftScope, offset: offset} = _left;
+                    const {name: rightName, scope: rightScope, offset: rightOffset} = _right;
+                    for (let i = offset, j = rightOffset; i < name.length; i++, j++) {
+                        // console.log('m', i, name[i], rightName[i]);
+                        if (!_match(name[i], rightName[j], leftScope, rightScope, binds)) {
+                            // console.log('f', i, name[i], rightName[i]);
+                            return false;
+                        }
+                    }
+                    return true;
                 }
             } else if (typeof _right.name === 'object') {
                 const {name, scope: leftScope} = _left;
