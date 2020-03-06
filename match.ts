@@ -84,8 +84,10 @@ function cut() {
 
 class Id {
     name: string;
+    rest: boolean;
     constructor(name: string) {
         this.name = name;
+        this.rest = name.startsWith('...');
     }
 
     static nextId = 0;
@@ -102,9 +104,11 @@ function id(name: string) {
 class Address<Name extends Addressable = Addressable> {
     scope: Scope;
     name: Name;
-    constructor(scope: Scope, name: Name) {
+    offset: number;
+    constructor(scope: Scope, name: Name, offset?: number) {
         this.scope = scope;
         this.name = name;
+        this.offset = offset;
     }
 }
 
@@ -186,7 +190,18 @@ function _match(left: any, right: any, leftScope: Scope, rightScope: Scope, bind
         if (_right instanceof Address) {
             if (typeof _right.name === 'string') {
                 return bindAddress(_right as Address<string>, _left, binds);
-            } else if (Array.isArray(_left.name) && Array.isArray(_right.name) && _left.name.length === _right.name.length) {
+            } else if (Array.isArray(_left.name) && Array.isArray(_right.name)) {
+                let leftLength = _left.name.length;
+                let rightLength = _right.name.length;
+                if (_left.offset) leftLength -= _left.offset;
+                if (_right.offset) rightLength -= _right.offset;
+                if (leftLength < rightLength) {
+                    
+                }
+                if (_left.name[_left.name.length - 1] instanceof) {
+                    
+                }
+            // } && _left.name.length === _right.name.length) {
                 const {name, scope: leftScope} = _left;
                 const {name: rightName, scope: rightScope} = _right;
                 for (let i = 0; i < name.length; i++) {
@@ -590,3 +605,36 @@ call(s1, [block, [
     ]], FALSE);
 }
 // call({}, [match, []], FALSE);
+
+// const branchFacts2 = [[[fact, restFacts], params], [branch, [
+//     [fact, params],
+//     [callSelf, [restFacts, params]],
+// ]]]
+
+// const member = [[item, [head, restList]], [branch, [
+//     [match, [head, item]],
+//     [callSelf, [item, restList]],
+// ]]]
+
+{
+    const [params, p0, p1, pm, pp, path] = 'params, p0, p1, pm, pp, path'.split(', ').map(id);
+    const navigate = [params] as any[];
+    navigate[1] = [branchFacts, [[
+        [['a', 'b', ['a2b']]],
+        [['c', 'd', ['c2d']]],
+        [['b', 'e', ['b2e']]],
+        [['e', 'g', ['e2g']]],
+        [['g', 'f', ['g2f']]],
+        [['g', 'f', ['g2f']]],
+        [['f', 'h', ['f2h']]],
+        [['h', 'c', ['h2c']]],
+        [[p0, p1, path], [block, [
+            [navigate, [p0, pm, [pp]]],
+            [navigate, [pm, p1, _1]],
+            [match, [path, [pp, _1]]],
+        ]]]
+    ], params]];
+    const start = (t => t[0] + t[1] / 1e9)(process.hrtime());
+    call({}, [block, [[navigate, ['a', 'd', path]], [log, [path]]]], FALSE)
+    console.log((t => t[0] + t[1] / 1e9)(process.hrtime()) - start);
+}
