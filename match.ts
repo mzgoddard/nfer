@@ -105,11 +105,17 @@ class Address<Name extends Addressable = Addressable> {
     scope: Scope;
     name: Name;
     offset: number;
+
+    debugId: number;
     constructor(scope: Scope, name: Name, offset?: number) {
         this.scope = scope;
         this.name = name;
         this.offset = offset;
+
+        this.debugId = Address.nextDebugId++;
     }
+
+    static nextDebugId = 0;
 }
 
 function readAddress(addr: Address): Address {
@@ -191,17 +197,17 @@ function _match(left: any, right: any, leftScope: Scope, rightScope: Scope, bind
             if (typeof _right.name === 'string') {
                 return bindAddress(_right as Address<string>, _left, binds);
             } else if (Array.isArray(_left.name) && Array.isArray(_right.name)) {
-                let leftLength = _left.name.length;
-                let rightLength = _right.name.length;
-                if (_left.offset) leftLength -= _left.offset;
-                if (_right.offset) rightLength -= _right.offset;
-                if (leftLength < rightLength) {
+                // let leftLength = _left.name.length;
+                // let rightLength = _right.name.length;
+                // if (_left.offset) leftLength -= _left.offset;
+                // if (_right.offset) rightLength -= _right.offset;
+                // if (leftLength < rightLength) {
                     
-                }
-                if (_left.name[_left.name.length - 1] instanceof) {
+                // }
+                // if (_left.name[_left.name.length - 1] instanceof) {
                     
-                }
-            // } && _left.name.length === _right.name.length) {
+                // }
+                if (_left.name.length === _right.name.length) {
                 const {name, scope: leftScope} = _left;
                 const {name: rightName, scope: rightScope} = _right;
                 for (let i = 0; i < name.length; i++) {
@@ -212,6 +218,7 @@ function _match(left: any, right: any, leftScope: Scope, rightScope: Scope, bind
                     }
                 }
                 return true;
+                }
             } else if (typeof _right.name === 'object') {
                 const {name, scope: leftScope} = _left;
                 const {name: rightName, scope: rightScope} = _right;
@@ -638,3 +645,5 @@ call(s1, [block, [
     call({}, [block, [[navigate, ['a', 'd', path]], [log, [path]]]], FALSE)
     console.log((t => t[0] + t[1] / 1e9)(process.hrtime()) - start);
 }
+
+console.log(Address.nextDebugId, 'addresses');
