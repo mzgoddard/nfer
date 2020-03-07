@@ -86,8 +86,9 @@ class Id {
     name: string;
     rest: boolean;
     constructor(name: string) {
-        this.name = name;
-        this.rest = name.startsWith('...');
+        const rest = name.startsWith('...');
+        this.name = rest ? name.substring(3) : name;
+        this.rest = rest;
     }
 
     static nextId = 0;
@@ -107,7 +108,7 @@ class Address<Name extends Addressable = Addressable> {
     offset: number;
 
     debugId: number;
-    constructor(scope: Scope, name: Name, offset?: number) {
+    constructor(scope: Scope, name: Name, offset: number = 0) {
         this.scope = scope;
         this.name = name;
         this.offset = offset;
@@ -157,6 +158,9 @@ class UnbindAddress implements StackFrame {
 function bindAddress(addr: Address<string>, value: Address | Primitive, binds: StackFrame[]) {
     const addrValue = addr.scope[addr.name];
     if (typeof addrValue === 'undefined') {
+        if (value instanceof Address && addr.scope === value.scope && addr.name === value.name) {
+            return true;
+        }
         addr.scope[addr.name] = value;
         binds.push(new UnbindAddress(addr));
         return true;
@@ -197,52 +201,38 @@ function _match(left: any, right: any, leftScope: Scope, rightScope: Scope, bind
             if (typeof _right.name === 'string') {
                 return bindAddress(_right as Address<string>, _left, binds);
             } else if (Array.isArray(_left.name) && Array.isArray(_right.name)) {
-                let leftLength = _left.name.length;
-                let rightLength = _right.name.length;
-                if (_left.offset) leftLength -= _left.offset;
-                if (_right.offset) rightLength -= _right.offset;
+                let leftLength = _left.name.length - _left.offset;
+                let rightLength = _right.name.length - _right.offset;
+
                 const lastLeft = _left.name[_left.name.length - 1];
                 const lastRight = _right.name[_right.name.length - 1];
                 const leftRest = lastLeft instanceof Id && lastLeft.rest;
                 const rightRest = lastRight instanceof Id && lastRight.rest;
-                if (leftRest || rightRest) {
-                    if (leftRest) {
-                        leftLength -= 1;
-                    }
-                    if (rightRest) {
-                        rightLength -= 1;
-                    }
-                    if (leftRest && leftLength <= rightLength) {
+                if (leftRest) leftLength -= 1;
+                if (rightRest) rightLength -= 1;
+                if (
+                    !leftRest && !rightRest && leftLength !== rightLength ||
+                    !leftRest && rightRest && leftLength < rightLength ||
+                    leftRest && !rightRest && rightLength < leftLength
+                ) return false;
 
-                    } else if (rightRest && rightLength <= leftLength) {
-                        
-                    }
-                    const minLength = Math.min(leftLength, rightLength);
-                    const {name, scope: leftScope, offset: offset} = _left;
-                    const {name: rightName, scope: rightScope, offset: rightOffset} = _right;
-                    for (let i = 0; i < minLength; i++) {
-                        // console.log('m', i, name[i], rightName[i]);
-                        if (!_match(name[i + offset], rightName[i + rightOffset], leftScope, rightScope, binds)) {
-                            // console.log('f', i, name[i], rightName[i]);
-                            return false;
-                        }
-                    }
-                    if (leftRest) {
+                const minLength = Math.min(leftLength, rightLength);
 
+                const {name: leftName, scope: leftScope, offset: leftOffset} = _left;
+                const {name: rightName, scope: rightScope, offset: rightOffset} = _right;
+                for (let i = 0; i < minLength; i++) {
+                    if (!_match(leftName[leftOffset + i], rightName[rightOffset + i], leftScope, rightScope, binds)) {
+                        return false;
                     }
-                    return true;
-                } else if (leftLength === rightLength) {
-                    const {name, scope: leftScope, offset: offset} = _left;
-                    const {name: rightName, scope: rightScope, offset: rightOffset} = _right;
-                    for (let i = offset, j = rightOffset; i < name.length; i++, j++) {
-                        // console.log('m', i, name[i], rightName[i]);
-                        if (!_match(name[i], rightName[j], leftScope, rightScope, binds)) {
-                            // console.log('f', i, name[i], rightName[i]);
-                            return false;
-                        }
-                    }
-                    return true;
                 }
+
+                if (leftRest || rightRest) {
+                    let offsetLeft = leftRest ? lastLeft : new Address(leftScope, leftName, minLength + leftOffset);
+                    let offsetRight = rightRest ? lastRight : new Address(rightScope, rightName, minLength + rightOffset);
+                    // console.log(leftRest, rightRest, offsetLeft, offsetRight);
+                    return _match(offsetLeft, offsetRight, leftScope, rightScope, binds);
+                }
+                return true;
             } else if (typeof _right.name === 'object') {
                 const {name, scope: leftScope} = _left;
                 const {name: rightName, scope: rightScope} = _right;
@@ -398,6 +388,12 @@ function fact(args: any[], body?: CallShape) {
 
 function call(scope: Scope, callShape: CallShape, repeat: StackFrame | FALSE | CANCEL = FALSE) {
     if (!repeat) {
+        if (callShape instanceof Id) {
+            // console.log(scope, callShape);
+            // callShape = scope[callShape.name].name;
+            ({name: callShape, scope} = scope[callShape.name]);
+            // callShape = inspect(scope, callShape);
+        }
         if (Array.isArray(callShape)) {
             const [makeOp, params] = callShape;
             if (Array.isArray(makeOp)) {
@@ -507,6 +503,7 @@ class BranchFacts implements StackFrame {
             const result = this.repeat;
             if (result) return this;
             if (result === CANCEL) {
+                // console.log('CANCEL');
                 this.cancel();
                 return CANCEL;
             }
@@ -540,7 +537,7 @@ class Log implements StackFrame {
     }
 }
 
-function inspect(scope, obj) {
+function inspect(scope, obj, offset = 0) {
     if (obj instanceof Id) {
         if (typeof scope[obj.name] !== 'undefined') {
             return inspect(scope, scope[obj.name]);
@@ -549,11 +546,21 @@ function inspect(scope, obj) {
         if (typeof obj.name === 'string') {
             return inspect(obj.scope, obj.scope[obj.name]);
         }
-        return inspect(obj.scope, obj.name);
+        return inspect(obj.scope, obj.name, obj.offset);
     } else {
         if (obj && typeof obj === 'object') {
             if (Array.isArray(obj)) {
-                return obj.map(item => inspect(scope, item));
+                const lastItem = obj[obj.length - 1];
+                if (lastItem instanceof Id && lastItem.rest) {
+                    const beforeSpread = obj.slice(offset, obj.length - 1).map(item => inspect(scope, item));
+                    const spread = inspect(scope, lastItem);
+                    if (Array.isArray(spread)) {
+                        return [...beforeSpread, ...spread];
+                    }
+                    return [...beforeSpread, spread];
+                }
+                // console.log(obj);
+                return obj.slice(offset).map(item => inspect(scope, item));
             } else {
                 const o = {};
                 for (const key in obj) {
@@ -667,6 +674,99 @@ call(s1, [block, [
     ], params]];
     const start = (t => t[0] + t[1] / 1e9)(process.hrtime());
     call({}, [block, [[navigate, ['a', 'd', path]], [log, [path]]]], FALSE)
+    console.log((t => t[0] + t[1] / 1e9)(process.hrtime()) - start);
+}
+
+{
+    const [a, b, bSpread, c, d, dSpread, j, jSpread, k, kSpread, l, lSpread, m, mSpread, n] = 'a, b, ...b, c, d, ...d, j, ...j, k, ...k, l, ...l, m, ...m, n'.split(', ').map(id);
+    const s = {};
+    call(s, [block, [
+        [match, [a, [1, 2, 3, 4]]],
+        [log, ['a', a]],
+        [match, [[_1, _2, bSpread], a]],
+        [log, ['spread', b]],
+        [match, [c, [_1, 2, bSpread]]],
+        [log, ['spread', c]],
+        [match, [c, [1, 2, 3, 4]]],
+        [log, ['match']],
+        [match, [[1, 2, 3, 4, dSpread], [1, 2, 3, 4]]],
+        [log, ['spread', d]],
+        [match, [j, j]],
+        [match, [k, [1, jSpread]]],
+        [match, [l, [2, kSpread]]],
+        [match, [m, [3, lSpread]]],
+        [match, [n, [4, mSpread]]],
+        [log, ['built', n]],
+    ]]);
+    console.log(s);
+}
+
+{
+    const [params, p0, p1, pm, pp, path, list, listSpread, step, next, nextSpread, exclude, excludeSpread] = 'params, p0, p1, pm, pp, path, list, ...list, step, next, ...next, exclude, ...exclude'.split(', ').map(id);
+
+    const member = [params] as any[];
+    member[1] = [branchFacts, [[
+        // [[item, [item]]],
+        [[item, [item, listSpread]]],
+        [[item, [_1, listSpread]], [member, [item, list]]],
+    ], params]];
+    // const member = [[item, [_1, listSpread]]] as any[];
+    // member[1] = [branch, [
+    //     [match, [item, _1]],
+    //     [member, [item, list]],
+    // ]];
+
+    const edges = [
+        ['h', 'c'],
+        ['g', 'f'],
+        ['f', 'h'],
+        ['e', 'g'],
+        ['e', 'b'],
+        ['c', 'd'],
+        ['b', 'e'],
+        ['a', 'b'],
+    ];
+
+    call({}, [block, [
+        [member, [item, edges]],
+        // [match, [[item, listSpread], edges]],
+        [log, ['item', item]],
+        [no], 
+    ]]);
+
+    console.log('iterated all members', edges.length);
+
+    const not = [_1, [branch, [
+        [block, [
+            _1,
+            [cut],
+            [no],
+        ]],
+        [yes],
+    ]]];
+
+    call({_1: 2}, [block, [
+        [log, [_1]],
+        [not, [match, [1, _1]]],
+        // [match, [2, _1]],
+        [log, [_1]],
+    ]]);
+
+    const navigate = [params] as any[];
+    navigate[1] = [branchFacts, [[
+        [[p1, p1, [], exclude]],
+        [[p0, p1, [p1], exclude], [block, [
+            [member, [[p0, p1], edges]],
+            [not, [member, [p1, exclude]]],
+        ]]],
+        [[p0, p1, [step, nextSpread], exclude], [block, [
+            [navigate, [p0, pm, [step], exclude]],
+            [navigate, [pm, p1, next, [step, excludeSpread]]],
+        ]]],
+    ], params]];
+
+    const start = (t => t[0] + t[1] / 1e9)(process.hrtime());
+    call({}, [block, [[navigate, ['a', 'd', path, []]], [log, [path]]]], FALSE)
     console.log((t => t[0] + t[1] / 1e9)(process.hrtime()) - start);
 }
 
