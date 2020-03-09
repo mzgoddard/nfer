@@ -581,6 +581,14 @@ function fact(args: any[], body?: CallShape) {
     };
 }
 
+function getCallFact(factShape: any): (scope: Scope, ...args: any) => StackFrame {
+    return factShape.callFact;
+}
+
+function setCallFact(factShape: any, callFact: any) {
+    factShape.callFact = callFact;
+}
+
 let calledNext = 0;
 
 function call(scope: Scope, callShape: CallShape, repeat: StackFrame | FALSE | CANCEL = FALSE) {
@@ -594,10 +602,14 @@ function call(scope: Scope, callShape: CallShape, repeat: StackFrame | FALSE | C
         if (Array.isArray(callShape)) {
             const [makeOp, params] = callShape;
             if (Array.isArray(makeOp)) {
-                const [args, body] = makeOp;
+                let callFact = getCallFact(makeOp);
+                if (!callFact) {
+                    const [args, body] = makeOp;
+                    setCallFact(makeOp, callFact = fact(args, body));
+                }
                 repeat = params ?
-                    fact(args, body)(scope, ...params) :
-                    fact(args, body)(scope);
+                    callFact(scope, ...params) :
+                    callFact(scope);
             } else {
                 repeat = params ? makeOp(scope, ...params) : makeOp(scope);
             }
