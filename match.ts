@@ -1121,3 +1121,163 @@ calledNext = 0;
 }
 
 console.log(calledNext, 'call()ed ops');
+
+// [
+//     [element, [C, E]],
+// ];
+
+// [component, [[C], [
+
+// ]]];
+
+// [[A, B, C, D], [
+//     [style, [
+//         [row, []],
+//         [scroll, ['horizontal']],
+//     ]],
+//     [textInput, [A, args, [text, ['key', args]]]],
+// ]];
+
+// rowItem = [[C, D], [block, [
+    
+// ]]];
+
+// row = [[C, D], [block, [
+//     [children, [ch, C]],
+//     [forall, [rm, dh, [block, [
+//         [member, [m, ch]],
+//         [rowItem, [m, rm]],
+//     ]]]],
+//     [children, [dh, C, D]],
+// ]]];
+
+// text = [[C, D, key, args], [block, [
+//     [intl, [C, key, args, copy]],
+//     [children, [ch, C]],
+//     [nth, [copy, Id._, ch, dh]],
+//     [children, [dh, C, D]],
+// ]]];
+
+// textInput = [[C, D, T, args, body], [block, [
+
+// ]]];
+
+// centerAll = [[C, D], [block, [
+//     [parent, [C, CP]],
+
+// ]]];
+
+// [[], [branch, [
+//     [block, [
+//         [match, ['preparing', state]],
+//         [match, [newState, 'enter']],
+//     ]],
+// ]]];
+
+// [[{state: 'preparing'}, 'enter'], [yes]];
+// [[{state: 'enter', rightBar: 'none', enterDone: true}, 'default']];
+// [[{state: 'active-glitch-leave', rightBar: 'none', isActiveGlitch: false, lastGlitchCompleted: false, leaveDone: true}, 'default']];
+// [[{state: 'variables-leave', rightBar: 'none', isActiveGlitch: false, lastGlitchCompleted: false, leaveDone: true}, 'default']];
+// [[{state: 'code-leave', rightBar: 'none', isActiveGlitch: false, lastGlitchCompleted: false, leaveDone: true}, 'default']];
+// [[{state: 'variables-leave', rightBar: 'none', isActiveGlitch: false, lastGlitchCompleted: false, leaveDone: true}, 'default']];
+// [[{state: 'enter', isActiveGlitch: true}, 'active-glitch-enter']];
+// [[{state: 'default', isActiveGlitch: true}, 'active-glitch-enter']];
+// [[{state: 'active-glitch-leave', isActiveGlitch: true}, 'active-glitch-enter']];
+// [[{state: 'active-glitch-enter', isActiveGlitch: true, enterDone: true}, 'active-glitch']];
+// [[{state: 'active-glitch-enter', isActiveGlitch: false}, 'active-glitch-leave']];
+// [[{state: 'active-glitch', isActiveGlitch: false}, 'active-glitch-leave']];
+// [[{state: 'enter', rightBar: 'variables'}, 'variables-enter']];
+// [[{state: 'default', rightBar: 'variables'}, 'variables-enter']];
+// [[{state: 'active-glitch-leave', rightBar: 'variables', leaveDone: true}, 'variables-enter']];
+// [[{state: 'history-leave', rightBar: 'variables', leaveDone: true}, 'variables-enter']];
+// [[{state: 'code-leave', rightBar: 'variables', leaveDone: true}, 'variables']];
+// [[{state: 'variables-leave', rightBar: 'variables'}, 'variables-enter']];
+// [[{state: 'variables-enter', rightBar: 'variables', enterDone: true}, 'variables']];
+// [[{state: 'variables-enter', rightBar}, 'variables-leave'], [not, [match, [rightBar, 'variables']]]];
+// [[{state: 'variables', rightBar}, 'variables-leave'], [not, [match, [rightBar, 'variables']]]];
+// [[{state: 'enter', rightBar: 'history'}, 'history-enter']];
+// [[{state: 'default', rightBar: 'history'}, 'history-enter']];
+// [[{state: 'active-glitch-leave', rightBar: 'history', leaveDone: true}, 'history-enter']];
+// [[{state: 'variables-leave', rightBar: 'history', leaveDone: true}, 'history-enter']];
+// [[{state: 'code-leave', rightBar: 'history', leaveDone: true}, 'history-enter']];
+// [[{state: 'history-leave', rightBar: 'history'}, 'history-enter']];
+// [[{state: 'history-enter', rightBar: 'history', enterDone: true}, 'history']];
+// [[{state: 'history-enter', rightBar}, 'history-leave'], [not, [match, [rightBar, 'history']]]];
+// [[{state: 'history', rightBar}, 'history-leave'], [not, [match, [rightBar, 'history']]]];
+// [[{state: 'enter', rightBar: 'code'}, 'code-enter']];
+// [[{state: 'default', rightBar: 'code'}, 'code-enter']];
+// [[{state: ''}]];
+
+// goals = [
+//     [{isActiveGlitch: true}, 'active-glitch'],
+//     [{rightBar: 'variables'}, 'variables'],
+//     [{rightBar: 'history'}, 'history'],
+//     [{rightBar: 'code'}, 'code'],
+//     [{lastGlitchCompleted: true}, 'leave'],
+//     [{detachingMenu: true}, 'leave'],
+//     [{rightBar: 'none'}, 'default'],
+// ];
+
+// nodes = [
+//     ['preparing', {}, 'enter'],
+//     ['enter', {enterDone: true}, 'default'],
+//     ['default', {}, 'active-glitch-enter'],
+//     ['active-glitch-enter', {enterDone: true}, 'active-glitch'],
+//     ['active-glitch-enter', {}, 'active-glitch-leave'],
+//     ['active-glitch', {}, 'active-glitch-leave'],
+//     ['active-glitch-leave', {leaveDone: true}, 'default'],
+//     ['active-glitch-leave', {}, 'active-glitch-enter'],
+//     ['default', {}, 'variables-enter'],
+//     ['variables-enter', {enterDone: true}, 'variables'],
+//     ['variables', {}, 'variables-leave'],
+//     ['variables-leave', {leaveDone: true}, 'default'],
+//     ['enter', {}, 'leave'],
+//     ['default', {}, 'leave'],
+// ];
+
+// nodes2 = {
+//     preparing: [
+//         [{}, 'enter'],
+//     ],
+//     enter: [
+//         [{enterDone: true}, 'default'],
+//         [{}, 'leave'],
+//     ],
+// };
+
+// [[], [block, [
+//     // data
+//     [props, [{date}]],
+//     // hierarchy
+//     [image, [{name: 'id'}]],
+//     [bone, [
+//         [text, [{name: 'event'}]],
+//         [cardinal, ['bottom', 'left']],
+//     ]],
+//     [bone, [
+//         [text, [{name: 'until', args: [date]}]],
+//         [cardinal, ['bottom', 'right']],
+//     ]],
+//     [bone, [
+//         [image, [{name: 'badge'}]],
+//         [bone, [
+//             [text, [{name: 'event-name'}]],
+//             [center, []],
+//         ]],
+//     ]],
+//     // style
+//     [margin, []],
+//     // actions
+//     [onPress, [
+//         [relative, [0, 10]],
+//     ]],
+//     [onClick, [
+//         [navigate, [{name: 'event'}]],
+//     ]],
+// ]]];
+
+// const element = [[tag, attrs, children], [
+
+// ]];
+
+// const render = [[el], []]
